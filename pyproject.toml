@@ -28,3 +28,10 @@ markers = [
     "postgres: braucht eine echte PostgreSQL-Instanz (TEST_DATABASE_URL)",
     "ocr: braucht ein installiertes tesseract mit deutschem Sprachpaket",
 ]
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["app*"]

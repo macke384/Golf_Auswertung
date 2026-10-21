@@ -1,0 +1,15 @@
+[Unit]
+Description=Golf_Auswertung: verwaiste Upload-Dateien entfernen
+
+[Service]
+Type=oneshot
+User=golf
+Group=golf
+WorkingDirectory=/opt/golf-auswertung
+EnvironmentFile=/etc/golf-auswertung/golf.env
+ExecStart=/opt/golf-auswertung/.venv/bin/python -m app.cli sweep
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/lib/golf-auswertung

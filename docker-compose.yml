@@ -2,7 +2,7 @@
 # Start:  cp .env.example .env  →  Werte setzen  →  docker compose up -d
 services:
   db:
-    image: postgres:16
+    image: postgres:17
     restart: unless-stopped
     environment:
       POSTGRES_USER: golf

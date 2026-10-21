@@ -1,0 +1,22 @@
+# Erzeugt von deploy/app/install.sh — Änderungen dort vornehmen.
+__DOMAIN__ {
+	__TLS__
+
+	encode zstd gzip
+
+	# Uploads werden bereits hier begrenzt; die App prüft zusätzlich.
+	request_body {
+		max_size 16MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options "nosniff"
+		-Server
+	}
+
+	reverse_proxy 127.0.0.1:8000 {
+		# Bei Neustart der App kurz warten statt sofort 502.
+		lb_try_duration 10s
+	}
+}

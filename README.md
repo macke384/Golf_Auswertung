@@ -91,21 +91,19 @@ Die Postgres-Tests migrieren eine leere DB hoch, wieder herunter und erneut hoch
 und prüfen u. a. parallele identische Uploads, parallele Meldungen und Scorekarten-Speicherungen.
 
 **Was grüne Tests NICHT beweisen** (muss separat geprüft werden):
-- Verhalten hinter Caddy (HTTPS, Body-Limit, Forwarded-Header) — nur im echten Deployment prüfbar.
+- Verhalten hinter Caddy (HTTPS, Body-Limit, Forwarded-Header) und die Installationsskripte auf echten LXC — nur im echten Deployment prüfbar.
 - Lastverhalten mit vielen gleichzeitigen Nutzern — braucht einen Lasttest gegen die laufende Instanz.
 - OCR-Qualität bei echten Scorekartenfotos und Parsing echter PDF-Exporte — braucht Beispieldateien.
 - Datei-Sweep: Zwischen Prüfung und Löschen gibt es ein sehr kleines Zeitfenster, in dem ein gleichzeitig
   neu hochgeladener identischer Inhalt getroffen werden könnte. Der Sweep läuft daher nur beim Start
   bzw. per `python -m app.cli sweep` zu ruhigen Zeiten.
 
-## Betrieb (Proxmox-LXC)
+## Betrieb
 
-1. LXC (Debian 12) mit Option `nesting=1` anlegen, Docker installieren.
-2. `cp .env.example .env` und Werte setzen (Domain, DB-Passwort, Session-Secret).
-3. `docker compose up -d` — Migrationen laufen beim Start automatisch.
-4. Ersten Admin anlegen: `docker compose exec app python -m app.cli create-admin admin@club.de`
+Empfohlen: **zwei LXC auf Proxmox ohne Docker** (App + Datenbank getrennt).
+Anleitung und Skripte: [deploy/README.md](deploy/README.md).
 
-Nur im Heimnetz: `GOLF_DOMAIN=golf.fritz.box` und im `Caddyfile` `tls internal` aktivieren.
+Alternativ für andere Umgebungen: `docker compose up -d` (siehe `docker-compose.yml`, `.env.example`).
 
 ## Bekannte Grenzen / nächste Schritte
 

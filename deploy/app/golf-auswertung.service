@@ -1,0 +1,41 @@
+[Unit]
+Description=Golf_Auswertung (API und Weboberfläche)
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+User=golf
+Group=golf
+WorkingDirectory=/opt/golf-auswertung
+EnvironmentFile=/etc/golf-auswertung/golf.env
+# Migrationen vor jedem Start; schlägt eine fehl, startet die App nicht.
+ExecStartPre=/opt/golf-auswertung/.venv/bin/alembic upgrade head
+# Nur lokal erreichbar; nach außen spricht ausschließlich Caddy.
+ExecStart=/opt/golf-auswertung/.venv/bin/uvicorn app.main:app \
+    --host 127.0.0.1 --port 8000 \
+    --proxy-headers --forwarded-allow-ips 127.0.0.1 \
+    --limit-concurrency 100 --timeout-graceful-shutdown 20 \
+    --no-server-header
+Restart=on-failure
+RestartSec=5
+TimeoutStartSec=120
+
+# Härtung
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictNamespaces=true
+LockPersonality=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+ReadWritePaths=/var/lib/golf-auswertung
+UMask=0027
+
+[Install]
+WantedBy=multi-user.target
