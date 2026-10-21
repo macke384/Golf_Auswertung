@@ -95,7 +95,10 @@ def create_app() -> FastAPI:
 
     @app.exception_handler(services.DomainError)
     async def _domain(_: Request, e: services.DomainError):
-        return JSONResponse({"detail": e.message, "errors": e.details}, status_code=e.status)
+        body = {"detail": e.message, "errors": e.details}
+        if e.code:
+            body["code"] = e.code
+        return JSONResponse(body, status_code=e.status)
 
     @app.exception_handler(UploadError)
     async def _upload(_: Request, e: UploadError):
@@ -231,16 +234,47 @@ def create_app() -> FastAPI:
         )
         if c is None:
             raise HTTPException(404, "Platz nicht gefunden.")
+        usage = services.tee_usage(db, [t.id for t in c.tees])
+        tournaments = db.scalar(select(func.count()).select_from(Tournament)
+                                .where(Tournament.course_id == c.id))
         return {
-            "id": c.id, "name": c.name,
+            "id": c.id, "name": c.name, "tournaments": tournaments,
             "tees": [
                 {"id": t.id, "name": t.name, "gender": t.gender, "holes_count": t.holes_count,
                  "course_rating": t.course_rating, "slope_rating": t.slope_rating, "par": t.par,
+                 "entries": usage.get(t.id, 0),
                  "holes": [{"number": h.number, "par": h.par, "stroke_index": h.stroke_index,
                             "length_m": h.length_m} for h in t.holes]}
-                for t in c.tees
+                for t in sorted(c.tees, key=lambda x: x.id)
             ],
         }
+
+    @app.patch("/courses/{course_id}")
+    def rename_course(course_id: int, body: schemas.CourseRename, db: Session = Depends(get_db),
+                      _: User = editor):
+        c = db.get(Course, course_id)
+        if c is None:
+            raise HTTPException(404, "Platz nicht gefunden.")
+        c.name = body.name
+        db.commit()
+        return {"id": c.id}
+
+    @app.delete("/courses/{course_id}", status_code=204)
+    def delete_course(course_id: int, db: Session = Depends(get_db), _: User = editor):
+        services.delete_course(db, course_id)
+        db.commit()
+
+    @app.put("/tees/{tee_id}")
+    def update_tee(tee_id: int, body: schemas.TeeIn, force: bool = False,
+                   db: Session = Depends(get_db), _: User = editor):
+        res = services.update_tee(db, tee_id, body.model_dump(), force=force)
+        db.commit()
+        return res
+
+    @app.delete("/tees/{tee_id}", status_code=204)
+    def delete_tee(tee_id: int, db: Session = Depends(get_db), _: User = editor):
+        services.delete_tee(db, tee_id)
+        db.commit()
 
     @app.post("/tournaments", status_code=201)
     def create_tournament(body: schemas.TournamentIn, db: Session = Depends(get_db),

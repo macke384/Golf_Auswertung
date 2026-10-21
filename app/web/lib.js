@@ -2,10 +2,11 @@
 // Grundregel: Daten werden nie als HTML eingesetzt, nur als Text (Schutz vor XSS).
 
 export class ApiError extends Error {
-  constructor(status, detail, errors = []) {
+  constructor(status, detail, errors = [], code = null) {
     super(detail);
     this.status = status;
     this.errors = errors;
+    this.code = code;
   }
 }
 
@@ -57,7 +58,7 @@ export async function api(method, path, body, { raw = false, headers = {} } = {}
   if (!res.ok) {
     const errs = (data && data.errors) || [];
     const list = errs.map((e) => (typeof e === "string" ? e : `${e.field}: ${e.message}`));
-    throw new ApiError(res.status, (data && data.detail) || `Fehler ${res.status}`, list);
+    throw new ApiError(res.status, (data && data.detail) || `Fehler ${res.status}`, list, data && data.code);
   }
   return data;
 }

@@ -119,3 +119,7 @@ class UserPatch(Strict):
     role: Literal["admin", "editor", "viewer"] | None = None
     is_active: bool | None = None
     password: Annotated[str, StringConstraints(min_length=12, max_length=1024)] | None = None
+
+
+class CourseRename(Strict):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)]

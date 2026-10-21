@@ -12,7 +12,7 @@ Unter der Adresse des Servers (z. B. `https://192.168.178.24`) nach der Anmeldun
 
 | Bereich | Funktion |
 |---|---|
-| Plätze | Platz mit Abschlägen anlegen: CR, SR, Par, je Loch Par und Loch-HCP (doppelte Loch-HCP werden rot markiert) |
+| Plätze | Platz mit Abschlägen anlegen, umbenennen, löschen; Abschläge hinzufügen (Par und optional Loch-HCP von bestehendem Abschlag übernehmen), bearbeiten, löschen. Abschläge mit Meldungen: Änderung nur nach Rückfrage, Spielvorgaben werden neu berechnet; bestätigte Scorekarten sperren Änderungen |
 | Spieler | Anlegen, bearbeiten, suchen; HCP-Index in deutscher Schreibweise (`18,4`, `+1,2`) |
 | Mannschaften | Anlegen und Spieler per Häkchen zuordnen |
 | Turniere | Anlegen (18 Loch, 9 Loch vorne/hinten, Handicap-Anteil), Spieler einzeln oder als ganze Mannschaft melden |
@@ -129,7 +129,7 @@ Alternativ für andere Umgebungen: `docker compose up -d` (siehe `docker-compose
 
 - Scorekarten-Erfassung auf dem Handy
 - Separate 9-Loch-Course/Slope-Ratings
-- Bearbeiten/Löschen von Plätzen, Turnieren und Mannschaften (Spieler sind bearbeitbar, Meldungen löschbar)
+- Bearbeiten/Löschen von Turnieren und Mannschaften (Plätze und Spieler sind bearbeitbar, Meldungen löschbar)
 - Automatisierte Browser-Tests der Oberfläche in der CI (bisher manuell mit Playwright geprüft)
 - Import-Verarbeitung (OCR) als Hintergrundjob statt im Request
 - DGV-Anbindung als spätere Import-Schnittstelle

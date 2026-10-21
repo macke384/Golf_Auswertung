@@ -28,11 +28,13 @@ from app.scoring import leaderboard, plausibility, whs
 class DomainError(Exception):
     """Fachlicher Fehler, der dem Nutzer verständlich gemeldet werden kann."""
 
-    def __init__(self, status: int, message: str, details: list[str] | None = None):
+    def __init__(self, status: int, message: str, details: list[str] | None = None,
+                 code: str | None = None):
         super().__init__(message)
         self.status = status
         self.message = message
         self.details = details or []
+        self.code = code  # maschinenlesbar, z. B. "tee_in_use" für Rückfragen in der Oberfläche
 
 
 # --- Platz / Runde -----------------------------------------------------------
@@ -386,3 +388,132 @@ def delete_entry(db: Session, entry_id: int) -> None:
         raise DomainError(409, "Teilnahmen mit bestätigter Scorekarte können nicht gelöscht werden.")
     db.delete(entry)
     db.flush()
+
+
+# --- Plätze bearbeiten / löschen ---------------------------------------------
+
+
+def tee_usage(db: Session, tee_ids: list[int]) -> dict[int, int]:
+    if not tee_ids:
+        return {}
+    rows = db.execute(
+        select(TournamentEntry.tee_id, func.count())
+        .where(TournamentEntry.tee_id.in_(tee_ids))
+        .group_by(TournamentEntry.tee_id)
+    ).all()
+    return dict(rows)  # type: ignore[arg-type]
+
+
+def update_tee(db: Session, tee_id: int, data: dict, force: bool = False) -> dict:
+    """Ändert einen Abschlag vollständig.
+
+    Wird der Abschlag schon in Meldungen verwendet, ist eine ausdrückliche
+    Bestätigung (force) nötig; danach werden die eingefrorenen Spielvorgaben
+    dieser Meldungen mit ihrem eingefrorenen HCP-Index neu berechnet.
+    Bestätigte Scorekarten blockieren jede Änderung.
+    """
+    tee = db.scalar(
+        select(Tee).options(selectinload(Tee.holes)).where(Tee.id == tee_id).with_for_update()
+    )
+    if tee is None:
+        raise DomainError(404, "Abschlag nicht gefunden.")
+    holes = [whs.Hole(h["number"], h["par"], h["stroke_index"]) for h in data["holes"]]
+    check = plausibility.check_tee(
+        holes, data["course_rating"], data["slope_rating"], data["par"], data["holes_count"]
+    )
+    if not check.ok:
+        raise DomainError(422, "Abschlagsdaten sind ungültig.", check.errors)
+
+    entries = db.scalars(
+        select(TournamentEntry).where(TournamentEntry.tee_id == tee_id).with_for_update()
+    ).all()
+    rating_changed = (
+        tee.holes_count != data["holes_count"]
+        or Decimal(tee.course_rating) != Decimal(str(data["course_rating"]))
+        or tee.slope_rating != data["slope_rating"]
+        or tee.par != data["par"]
+        or [(h.number, h.par, h.stroke_index) for h in tee.holes]
+        != [(h["number"], h["par"], h["stroke_index"]) for h in sorted(data["holes"], key=lambda x: x["number"])]
+    )
+    if entries and rating_changed:
+        confirmed = db.scalar(
+            select(func.count()).select_from(Scorecard)
+            .where(Scorecard.entry_id.in_([e.id for e in entries]), Scorecard.status == "confirmed")
+        )
+        if confirmed:
+            raise DomainError(
+                409,
+                f"Der Abschlag gehört zu {confirmed} bestätigten Scorekarte(n) und kann nicht mehr "
+                "geändert werden. Lege bei Bedarf einen neuen Abschlag an.",
+            )
+        if tee.holes_count != data["holes_count"]:
+            raise DomainError(409, "Die Lochzahl kann nicht geändert werden, solange Spieler gemeldet sind.")
+        if not force:
+            raise DomainError(
+                409,
+                f"Der Abschlag wird in {len(entries)} Meldung(en) verwendet. Die Spielvorgaben "
+                "dieser Meldungen werden neu berechnet.",
+                code="tee_in_use",
+            )
+
+    tee.name = data["name"]
+    tee.gender = data["gender"]
+    tee.holes_count = data["holes_count"]
+    tee.course_rating = data["course_rating"]
+    tee.slope_rating = data["slope_rating"]
+    tee.par = data["par"]
+    # Löcher erst löschen, dann neu anlegen: sonst kollidieren Primärschlüssel
+    # und der eindeutige Loch-HCP beim Tauschen von Werten.
+    tee.holes.clear()
+    db.flush()
+    tee.holes.extend(
+        TeeHole(number=h["number"], par=h["par"], stroke_index=h["stroke_index"], length_m=h.get("length_m"))
+        for h in data["holes"]
+    )
+    try:
+        db.flush()
+    except IntegrityError:
+        raise DomainError(409, "Es gibt auf diesem Platz schon einen Abschlag mit diesem Namen und Geschlecht.")
+
+    recalculated = 0
+    if rating_changed:
+        for e in entries:
+            t = db.get(Tournament, e.tournament_id)
+            rh = round_holes(t, tee)  # type: ignore[arg-type]
+            ch = whs.course_handicap(Decimal(e.handicap_index), round_rating(t, tee, rh))  # type: ignore[arg-type]
+            new_ph = whs.playing_handicap(ch, t.allowance_pct)  # type: ignore[union-attr]
+            if new_ph != e.playing_handicap:
+                e.playing_handicap = new_ph
+                recalculated += 1
+        db.flush()
+    return {"id": tee.id, "entries": len(entries), "recalculated": recalculated}
+
+
+def delete_tee(db: Session, tee_id: int) -> None:
+    tee = db.scalar(select(Tee).where(Tee.id == tee_id).with_for_update())
+    if tee is None:
+        raise DomainError(404, "Abschlag nicht gefunden.")
+    used = tee_usage(db, [tee_id]).get(tee_id, 0)
+    if used:
+        raise DomainError(409, f"Der Abschlag wird in {used} Meldung(en) verwendet und kann nicht gelöscht werden.")
+    db.delete(tee)
+    try:
+        db.flush()
+    except IntegrityError:  # parallel gemeldet
+        raise DomainError(409, "Der Abschlag wird inzwischen verwendet.")
+
+
+def delete_course(db: Session, course_id: int) -> None:
+    from app.models import Course
+
+    course = db.scalar(select(Course).where(Course.id == course_id).with_for_update())
+    if course is None:
+        raise DomainError(404, "Platz nicht gefunden.")
+    n = db.scalar(select(func.count()).select_from(Tournament).where(Tournament.course_id == course_id))
+    if n:
+        raise DomainError(409, f"Auf dem Platz gibt es {n} Turnier(e). Erst die Turniere löschen.")
+    db.delete(course)
+    try:
+        db.flush()
+    except IntegrityError:
+        raise DomainError(409, "Der Platz wird inzwischen verwendet.")

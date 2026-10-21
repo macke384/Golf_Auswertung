@@ -42,6 +42,8 @@
 }
 
 * { box-sizing: border-box; }
+/* Das hidden-Attribut muss immer gewinnen, auch gegen display:flex/grid von Klassen. */
+[hidden] { display: none !important; }
 html { -webkit-text-size-adjust: 100%; }
 body {
   margin: 0;
@@ -251,3 +253,7 @@ td.pts.p4 { color: var(--gold); }
   .topbar { flex-wrap: wrap; gap: .5rem 1rem; }
   .who { width: 100%; justify-content: space-between; }
 }
+
+.source-row { display: flex; gap: .5rem 1.25rem; align-items: flex-end; flex-wrap: wrap; padding: .75rem; margin-bottom: 1rem; border-radius: 8px; background: var(--surface-2); }
+.source-row .field { min-width: 260px; }
+.source-row small { flex-basis: 100%; }
