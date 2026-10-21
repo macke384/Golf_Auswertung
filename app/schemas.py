@@ -123,3 +123,31 @@ class UserPatch(Strict):
 
 class CourseRename(Strict):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)]
+
+
+class SingleRoundIn(Strict):
+    player_id: int
+    tee_id: int
+    played_on: date
+    holes_count: Literal[9, 18] = 18
+    start_hole: Literal[1, 10] = 1
+    handicap_index: HI | None = None  # sonst aktueller Index des Spielers
+    note: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
+
+
+class TournamentPatch(Strict):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)] | None = None
+    played_on: date | None = None
+    course_id: int | None = None
+    holes_count: Literal[9, 18] | None = None
+    start_hole: Literal[1, 10] | None = None
+    allowance_pct: Annotated[int, Field(ge=1, le=100)] | None = None
+    note: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
+
+
+class TeamRename(Strict):
+    name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=120)]
+
+
+class EntryPatch(Strict):
+    team_id: int | None = None

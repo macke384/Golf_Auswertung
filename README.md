@@ -13,9 +13,10 @@ Unter der Adresse des Servers (z. B. `https://192.168.178.24`) nach der Anmeldun
 | Bereich | Funktion |
 |---|---|
 | Plätze | Platz mit Abschlägen anlegen, umbenennen, löschen; Abschläge hinzufügen (Par und optional Loch-HCP von bestehendem Abschlag übernehmen), bearbeiten, löschen. Abschläge mit Meldungen: Änderung nur nach Rückfrage, Spielvorgaben werden neu berechnet; bestätigte Scorekarten sperren Änderungen |
-| Spieler | Anlegen, bearbeiten, suchen; HCP-Index in deutscher Schreibweise (`18,4`, `+1,2`) |
-| Mannschaften | Anlegen und Spieler per Häkchen zuordnen |
-| Turniere | Anlegen (18 Loch, 9 Loch vorne/hinten, Handicap-Anteil), Spieler einzeln oder als ganze Mannschaft melden |
+| Einzelrunden | Private Runden/Training eines Spielers (18 Loch, 9 Loch vorne/hinten, Notiz), Spielvorgabe mit 100 % Handicap-Anteil; gleiche Scorekarte und Auswertung wie im Turnier |
+| Spieler | Anlegen, bearbeiten, suchen; HCP-Index in deutscher Schreibweise (`18,4`, `+1,2`). Spielerseite mit persönlicher Auswertung: alle Runden (Turniere und Einzelrunden), bestes/Ø Brutto, beste/Ø Stableford netto, getrennt nach 18 und 9 Loch |
+| Mannschaften | Anlegen, umbenennen, löschen (nicht, solange in Turniermeldungen eingetragen), Spieler per Häkchen zuordnen |
+| Turniere | Anlegen, bearbeiten, löschen (18 Loch, 9 Loch vorne/hinten, Handicap-Anteil); Spieler einzeln oder als ganze Mannschaft melden, Mannschaft je Meldung ändern. Handicap-Anteil-Änderung berechnet Spielvorgaben neu (nach Rückfrage); Platz/Runde nur ohne Meldungen; bestätigte Scorekarten sperren ergebnisrelevante Änderungen und das Löschen |
 | Scorekarte | Loch-Raster mit Live-Auswertung (Vorgabeschläge, Punkte je Loch, Brutto/Netto, Stableford); Cursor springt automatisch weiter, `-` = gestrichen; Status Entwurf/Eingereicht/Bestätigt |
 | Rangliste | Stableford/Zählspiel, brutto/netto, Mannschaftswertung mit „beste N“ |
 | Importe | CSV/PDF/Foto hochladen, Original neben den erkannten Werten prüfen, automatische Namenszuordnung, korrigieren, übernehmen |
@@ -59,6 +60,7 @@ tests/                 Unit-Tests + Integrationstests gegen echte PostgreSQL
 | Eingefrorene Werte | HI und Playing HCP werden bei der Turniermeldung gespeichert |
 | Stechen | Letzte 9/6/3/1 (18 Loch) bzw. 6/3/1 (9 Loch) in Spielreihenfolge |
 | Mannschaft | Summe der besten N Netto-Stableford-Ergebnisse (N pro Abfrage wählbar) |
+| Einzelrunde | Technisch ein Turnier vom Typ `single` mit genau einer Meldung und 100 % Allowance – gleiche Berechnung, gleiche Absicherung |
 
 ## Import
 
@@ -129,7 +131,7 @@ Alternativ für andere Umgebungen: `docker compose up -d` (siehe `docker-compose
 
 - Scorekarten-Erfassung auf dem Handy
 - Separate 9-Loch-Course/Slope-Ratings
-- Bearbeiten/Löschen von Turnieren und Mannschaften (Plätze und Spieler sind bearbeitbar, Meldungen löschbar)
+- Löschen von Spielern
 - Automatisierte Browser-Tests der Oberfläche in der CI (bisher manuell mit Playwright geprüft)
 - Import-Verarbeitung (OCR) als Hintergrundjob statt im Request
 - DGV-Anbindung als spätere Import-Schnittstelle

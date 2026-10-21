@@ -18,6 +18,7 @@ from sqlalchemy import (
     Date,
     DateTime,
     ForeignKey,
+    Index,
     Integer,
     Numeric,
     SmallInteger,
@@ -25,6 +26,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     func,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -138,8 +140,15 @@ class Tournament(Base):
     holes_count: Mapped[int] = mapped_column(SmallInteger)
     start_hole: Mapped[int] = mapped_column(SmallInteger, default=1)  # 1 oder 10 bei 9 Loch
     allowance_pct: Mapped[int] = mapped_column(SmallInteger, default=100)
+    # "tournament" = Turnier/Spieltag; "single" = Einzelrunde eines Spielers
+    # (privat/Training), technisch ein Turnier mit genau einer Meldung.
+    kind: Mapped[str] = mapped_column(String(12), default="tournament", server_default="tournament")
+    note: Mapped[str | None] = mapped_column(String(300))
     __table_args__ = (
-        UniqueConstraint("name", "played_on", name="uq_tournaments_name_date"),
+        # Turniernamen sind pro Tag eindeutig; Einzelrunden nicht (gleicher Spieler, zwei Runden).
+        Index("uq_tournaments_name_date", "name", "played_on", unique=True,
+              postgresql_where=text("kind = 'tournament'")),
+        CheckConstraint("kind IN ('tournament','single')", name="ck_tournaments_kind"),
         CheckConstraint("holes_count IN (9,18)", name="ck_tournaments_holes"),
         CheckConstraint("start_hole IN (1,10)", name="ck_tournaments_start"),
         CheckConstraint("holes_count = 9 OR start_hole = 1", name="ck_tournaments_start_18"),

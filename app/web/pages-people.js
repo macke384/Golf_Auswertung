@@ -66,7 +66,7 @@ export async function playersPage() {
     tbody.replaceChildren(...players
       .filter((p) => !q || nameKey(`${p.first_name} ${p.last_name} ${p.dgv_id || ""}`).includes(q))
       .map((p) => h("tr", {},
-        h("td", {}, `${p.last_name}, ${p.first_name}`),
+        h("td", {}, h("a", { href: `#/spieler/${p.id}`, title: "Runden und Auswertung" }, `${p.last_name}, ${p.first_name}`)),
         h("td", {}, GENDER.find(([g]) => g === p.gender)?.[1] || p.gender),
         h("td", { class: "num" }, fmtHcp(p.handicap_index)),
         h("td", {}, p.dgv_id || ""),
@@ -122,8 +122,28 @@ export async function teamsPage() {
       } catch (err) { showError(errSlot, err); }
     } }, "Speichern");
     list.append(...(t.members.length ? t.members.map((m) => h("span", { class: "chip" }, m.name)) : [h("span", { class: "muted" }, "Noch keine Spieler")]));
+    const titleEl = h("h2", {}, t.name);
+    const renameForm = h("form", { class: "inline-form", hidden: true, onsubmit: async (e) => {
+      e.preventDefault();
+      try {
+        await api("PATCH", `/teams/${t.id}`, { name: renameForm.elements.namedItem("tname").value });
+        toast("Mannschaft umbenannt");
+        reload();
+      } catch (err) { showError(errSlot, err); }
+    } },
+    h("input", { name: "tname", required: true, maxlength: 120, value: t.name, "aria-label": "Name der Mannschaft" }),
+    h("button", { type: "submit", class: "primary small" }, "Speichern"),
+    h("button", { type: "button", class: "ghost small", onclick: () => { renameForm.hidden = true; titleEl.hidden = false; } }, "Abbrechen"));
+    const menu = can.edit() ? h("div", { class: "inline" },
+      h("button", { class: "link", onclick: () => { renameForm.hidden = false; titleEl.hidden = true; renameForm.querySelector("input").select(); } }, "Umbenennen"),
+      h("button", { class: "link danger", onclick: async () => {
+        if (!confirm(`Mannschaft „${t.name}“ löschen? Die Spieler bleiben erhalten.`)) return;
+        try { await api("DELETE", `/teams/${t.id}`); toast("Mannschaft gelöscht"); reload(); } catch (err) { showError(errSlot, err); }
+      } }, "Löschen")) : null;
     return h("div", { class: "card" },
-      h("div", { class: "card-head" }, h("h2", {}, t.name), h("span", { class: "muted" }, `${t.members.length} Spieler`)),
+      h("div", { class: "card-head" },
+        h("div", {}, titleEl, renameForm, h("span", { class: "muted" }, `${t.members.length} Spieler`)),
+        menu),
       list, errSlot, editBox, h("div", { class: "actions" }, editBtn, saveBtn));
   }
 

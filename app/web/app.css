@@ -257,3 +257,9 @@ td.pts.p4 { color: var(--gold); }
 .source-row { display: flex; gap: .5rem 1.25rem; align-items: flex-end; flex-wrap: wrap; padding: .75rem; margin-bottom: 1rem; border-radius: 8px; background: var(--surface-2); }
 .source-row .field { min-width: 260px; }
 .source-row small { flex-basis: 100%; }
+
+select.compact { min-height: 1.9rem; padding: .2rem .4rem; font-size: .9rem; }
+
+/* Leere Meldungs-Platzhalter belegen keine Rasterzelle; mit Inhalt über die volle Breite. */
+.form-grid > div:empty { display: none; }
+.form-grid > div:has(> .alert) { grid-column: 1 / -1; }

@@ -4,6 +4,7 @@ import { playersPage, teamsPage, usersPage } from "./pages-people.js";
 import { coursesPage, courseNewPage, courseDetailPage } from "./pages-courses.js";
 import { tournamentsPage, tournamentDetailPage, scorecardPage } from "./pages-tournaments.js";
 import { importsPage, importDetailPage } from "./pages-imports.js";
+import { roundsPage, playerDetailPage } from "./pages-rounds.js";
 
 export const state = { user: null };
 
@@ -17,7 +18,9 @@ const routes = [
   [/^\/turniere$/, tournamentsPage],
   [/^\/turniere\/(\d+)$/, tournamentDetailPage],
   [/^\/scorekarte\/(\d+)$/, scorecardPage],
+  [/^\/runden$/, roundsPage],
   [/^\/spieler$/, playersPage],
+  [/^\/spieler\/(\d+)$/, playerDetailPage],
   [/^\/mannschaften$/, teamsPage],
   [/^\/plaetze$/, coursesPage],
   [/^\/plaetze\/neu$/, courseNewPage],
@@ -29,6 +32,7 @@ const routes = [
 
 const NAV = [
   ["#/turniere", "Turniere", /^\/(turniere|scorekarte)/],
+  ["#/runden", "Einzelrunden", /^\/runden/],
   ["#/spieler", "Spieler", /^\/spieler/],
   ["#/mannschaften", "Mannschaften", /^\/mannschaften/],
   ["#/plaetze", "Plätze", /^\/plaetze/],

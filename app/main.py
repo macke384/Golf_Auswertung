@@ -453,6 +453,7 @@ def create_app() -> FastAPI:
         counts = dict(db.execute(select(TournamentEntry.tournament_id, func.count())
                                  .group_by(TournamentEntry.tournament_id)).all())
         rows = db.execute(select(Tournament, Course.name).join(Course, Course.id == Tournament.course_id)
+                          .where(Tournament.kind == "tournament")
                           .order_by(Tournament.played_on.desc(), Tournament.name)).all()
         return [
             {"id": t.id, "name": t.name, "played_on": t.played_on, "course": cname,
@@ -464,6 +465,57 @@ def create_app() -> FastAPI:
     @app.get("/tournaments/{tournament_id}")
     def get_tournament(tournament_id: int, db: Session = Depends(get_db), _: User = viewer):
         return services.tournament_detail(db, tournament_id)
+
+    @app.patch("/tournaments/{tournament_id}")
+    def patch_tournament(tournament_id: int, body: schemas.TournamentPatch, force: bool = False,
+                         db: Session = Depends(get_db), _: User = editor):
+        data = {k: v for k, v in body.model_dump(exclude_unset=True).items()
+                if v is not None or k == "note"}
+        res = services.update_tournament(db, tournament_id, data, force=force)
+        db.commit()
+        return res
+
+    @app.delete("/tournaments/{tournament_id}", status_code=204)
+    def delete_tournament(tournament_id: int, db: Session = Depends(get_db), _: User = editor):
+        services.delete_tournament(db, tournament_id)
+        db.commit()
+
+    @app.post("/rounds", status_code=201)
+    def create_round(body: schemas.SingleRoundIn, db: Session = Depends(get_db), _: User = editor):
+        e = services.create_single_round(db, body.model_dump())
+        db.commit()
+        return {"entry_id": e.id, "tournament_id": e.tournament_id,
+                "playing_handicap": e.playing_handicap}
+
+    @app.get("/rounds")
+    def list_rounds(db: Session = Depends(get_db), _: User = viewer):
+        return services.single_rounds(db)
+
+    @app.get("/players/{player_id}/rounds")
+    def player_rounds(player_id: int, db: Session = Depends(get_db), _: User = viewer):
+        return services.player_rounds(db, player_id)
+
+    @app.patch("/teams/{team_id}")
+    def rename_team(team_id: int, body: schemas.TeamRename, db: Session = Depends(get_db),
+                    _: User = editor):
+        t = db.get(Team, team_id)
+        if t is None:
+            raise HTTPException(404, "Mannschaft nicht gefunden.")
+        t.name = body.name
+        db.commit()
+        return {"id": t.id}
+
+    @app.delete("/teams/{team_id}", status_code=204)
+    def delete_team(team_id: int, db: Session = Depends(get_db), _: User = editor):
+        services.delete_team(db, team_id)
+        db.commit()
+
+    @app.patch("/entries/{entry_id}")
+    def patch_entry(entry_id: int, body: schemas.EntryPatch, db: Session = Depends(get_db),
+                    _: User = editor):
+        res = services.update_entry(db, entry_id, body.model_dump(exclude_unset=True))
+        db.commit()
+        return res
 
     @app.delete("/entries/{entry_id}", status_code=204)
     def delete_entry(entry_id: int, db: Session = Depends(get_db), _: User = editor):

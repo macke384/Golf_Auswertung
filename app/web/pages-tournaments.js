@@ -74,6 +74,10 @@ export async function tournamentDetailPage(id) {
   const [t, players, teams, courses] = await Promise.all([
     api("GET", `/tournaments/${id}`), api("GET", "/players"), api("GET", "/teams"), api("GET", "/courses"),
   ]);
+  if (t.kind === "single" && t.entries.length) {
+    location.replace(`#/scorekarte/${t.entries[0].id}`);
+    return h("p", { class: "pad muted" }, "Weiterleitung …");
+  }
   const course = courses.find((c) => c.id === t.course_id);
   const tees = (course?.tees || []).filter((x) => t.holes_count === 9 || x.holes_count === 18);
   const entered = new Set(t.entries.map((e) => e.player_id));
@@ -140,7 +144,15 @@ export async function tournamentDetailPage(id) {
       const sc = e.scorecard;
       return h("tr", {},
         h("td", {}, e.player),
-        h("td", {}, e.team || h("span", { class: "muted" }, "–")),
+        h("td", {}, can.edit()
+          ? select("team", teamOpts, e.team_id ?? "", { class: "compact", "aria-label": `Mannschaft von ${e.player}`, onchange: async (ev) => {
+            try {
+              await api("PATCH", `/entries/${e.id}`, { team_id: ev.target.value ? Number(ev.target.value) : null });
+              toast("Mannschaft geändert");
+              reload();
+            } catch (err) { showError(slot, err); }
+          } })
+          : (e.team || h("span", { class: "muted" }, "–"))),
         h("td", {}, e.tee),
         h("td", { class: "num" }, fmtHcp(e.handicap_index)),
         h("td", { class: "num" }, e.playing_hcp),
@@ -155,10 +167,74 @@ export async function tournamentDetailPage(id) {
           } }, "✕") : null));
     }) : h("tr", {}, h("td", { colspan: 9, class: "muted" }, "Noch keine Spieler gemeldet.")))));
 
+  // --- Turnier bearbeiten / löschen
+  const editSlot = h("div");
+  const hasEntries = t.entries.length > 0;
+  const confirmed = t.entries.filter((e) => e.scorecard?.status === "confirmed").length;
+  const eStart = select("start_hole", [["1", "Loch 1–9"], ["10", "Loch 10–18"]], t.start_hole, { disabled: hasEntries });
+  const eStartField = field("Gespielte Löcher", eStart);
+  eStartField.hidden = t.holes_count !== 9;
+  const eHoles = select("holes_count", [["18", "18 Löcher"], ["9", "9 Löcher"]], t.holes_count, {
+    disabled: hasEntries, onchange: () => { eStartField.hidden = eHoles.value !== "9"; },
+  });
+  const editForm = h("form", { class: "card form-grid", hidden: true, onsubmit: async (ev) => {
+    ev.preventDefault();
+    const fd = new FormData(editForm);
+    // Gesperrte Felder fehlen in FormData – nur senden, was änderbar ist.
+    const body = { name: fd.get("ename"), played_on: fd.get("played_on"), note: fd.get("note") || null };
+    if (fd.has("allowance_pct")) body.allowance_pct = Number(fd.get("allowance_pct"));
+    if (!hasEntries) {
+      body.course_id = Number(fd.get("course_id"));
+      body.holes_count = Number(fd.get("holes_count"));
+      body.start_hole = body.holes_count === 9 ? Number(fd.get("start_hole")) : 1;
+    }
+    const send = async (force) => {
+      try {
+        const res = await api("PATCH", `/tournaments/${id}${force ? "?force=true" : ""}`, body);
+        toast(res.recalculated ? `Gespeichert, ${res.recalculated} Spielvorgabe(n) neu berechnet` : "Turnier gespeichert");
+        reload();
+      } catch (err) {
+        if (err.code === "tournament_in_use" && confirm(`${err.message}\n\nTrotzdem speichern?`)) { send(true); return; }
+        showError(editSlot, err);
+      }
+    };
+    send(false);
+  } },
+  h("h2", { class: "span-all" }, "Turnier bearbeiten"),
+  editSlot,
+  hasEntries ? h("p", { class: "muted small span-all" }, "Platz und Runde lassen sich nur ändern, solange niemand gemeldet ist. Eine Änderung des Handicap-Anteils berechnet die Spielvorgaben neu.") : null,
+  confirmed ? h("div", { class: "alert warn span-all" }, `${confirmed} Scorekarte(n) bestätigt – Handicap-Anteil, Platz und Runde sind gesperrt.`) : null,
+  field("Name", h("input", { name: "ename", required: true, maxlength: 150, value: t.name })),
+  field("Datum", h("input", { name: "played_on", type: "date", required: true, value: String(t.played_on).slice(0, 10) })),
+  field("Platz", select("course_id", courses.map((c) => [c.id, c.name]), t.course_id, { disabled: hasEntries })),
+  field("Runde", eHoles),
+  eStartField,
+  field("Handicap-Anteil (%)", h("input", { name: "allowance_pct", type: "number", min: 1, max: 100, value: t.allowance_pct, required: true, disabled: confirmed > 0 })),
+  field("Notiz", h("input", { name: "note", maxlength: 300, value: t.note || "" })),
+  h("div", { class: "actions span-all" },
+    h("button", { type: "submit", class: "primary" }, "Speichern"),
+    h("button", { type: "button", class: "ghost", onclick: () => { editForm.hidden = true; } }, "Abbrechen")));
+
+  const cards = t.entries.filter((e) => e.scorecard).length;
+  const headActions = can.edit() ? h("div", { class: "inline" },
+    h("button", { class: "ghost", onclick: () => { editForm.hidden = !editForm.hidden; if (!editForm.hidden) editForm.querySelector("input").focus(); } }, "Bearbeiten"),
+    h("button", {
+      class: "ghost danger", disabled: confirmed > 0,
+      title: confirmed ? "Bestätigte Scorekarten verhindern das Löschen" : "Turnier löschen",
+      onclick: async () => {
+        const what = hasEntries ? ` Dabei werden ${t.entries.length} Meldung(en)${cards ? ` und ${cards} Scorekarte(n)` : ""} unwiderruflich gelöscht.` : "";
+        if (!confirm(`Turnier „${t.name}“ löschen?${what}`)) return;
+        try { await api("DELETE", `/tournaments/${id}`); toast("Turnier gelöscht"); location.hash = "#/turniere"; } catch (err) { showError(slot, err); }
+      },
+    }, "Löschen")) : null;
+
   return h("section", { class: "page" },
     h("div", { class: "page-head" },
       h("div", {}, h("a", { href: "#/turniere", class: "back" }, "← Turniere"), h("h1", {}, t.name),
-        h("p", { class: "muted" }, `${fmtDate(t.played_on)} · ${t.course} · ${roundLabel(t)} · Handicap-Anteil ${t.allowance_pct} %`))),
+        h("p", { class: "muted" }, `${fmtDate(t.played_on)} · ${t.course} · ${roundLabel(t)} · Handicap-Anteil ${t.allowance_pct} %`),
+        t.note ? h("p", { class: "muted small" }, t.note) : null),
+      headActions),
+    editForm,
     entryBox,
     h("h2", {}, `Meldungen (${t.entries.length})`),
     entriesTable,
@@ -363,9 +439,16 @@ export async function scorecardPage(entryId) {
 
   return h("section", { class: "page" },
     h("div", { class: "page-head" },
-      h("div", {}, h("a", { href: `#/turniere/${info.tournament_id}`, class: "back" }, `← ${info.tournament}`),
+      h("div", {}, info.kind === "single"
+        ? h("a", { href: `#/spieler/${info.player_id}`, class: "back" }, `← Runden von ${info.player}`)
+        : h("a", { href: `#/turniere/${info.tournament_id}`, class: "back" }, `← ${info.tournament}`),
         h("h1", {}, info.player),
-        h("p", { class: "muted" }, `Abschlag ${info.tee} · HCP-Index ${fmtHcp(info.handicap_index)} · Spielvorgabe ${info.playing_hcp}`))),
+        h("p", { class: "muted" }, info.kind === "single" ? `Einzelrunde · ${fmtDate(info.played_on)} · ` : "",
+          `Abschlag ${info.tee} · HCP-Index ${fmtHcp(info.handicap_index)} · Spielvorgabe ${info.playing_hcp}`)),
+      info.kind === "single" && editable ? h("button", { class: "ghost danger", onclick: async () => {
+        if (!confirm("Diese Einzelrunde mit Scorekarte löschen?")) return;
+        try { await api("DELETE", `/entries/${entryId}`); toast("Einzelrunde gelöscht"); location.hash = `#/spieler/${info.player_id}`; } catch (err) { showError(slot, err); }
+      } }, "Runde löschen") : null),
     slot,
     h("div", { class: "card" },
       editable ? h("p", { class: "muted small" }, "Schläge eintragen – der Cursor springt automatisch weiter. „-“ oder „x“ = Loch gestrichen. Enter = nächstes Loch.") : null,
