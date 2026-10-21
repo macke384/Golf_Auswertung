@@ -4,13 +4,15 @@ from __future__ import annotations
 import logging
 import re
 import uuid
+from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Literal
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.responses import JSONResponse
-from sqlalchemy import select
+from fastapi.responses import FileResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from sqlalchemy import delete, func, select
 from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.orm.exc import StaleDataError
@@ -19,10 +21,29 @@ from app import schemas, security, services
 from app.config import Settings, get_settings
 from app.db import get_db, get_sessionmaker
 from app.imports import service as import_service
-from app.imports.upload import UploadError
-from app.models import Course, Import, Player, Scorecard, Team, TeamMember, Tee, Tournament, User
+from app.imports.upload import UploadError, stored_file
+from app.models import (
+    AuthSession,
+    Course,
+    Import,
+    Player,
+    Scorecard,
+    Team,
+    TeamMember,
+    Tee,
+    Tournament,
+    TournamentEntry,
+    User,
+)
 
 log = logging.getLogger("golf")
+WEB_DIR = Path(__file__).parent / "web"
+# Keine Inline-Skripte, keine fremden Quellen: begrenzt den Schaden möglicher XSS-Lücken.
+CSP = (
+    "default-src 'self'; script-src 'self'; style-src 'self'; img-src 'self' blob: data:; "
+    "object-src 'none'; frame-src 'self'; frame-ancestors 'self'; base-uri 'none'; "
+    "form-action 'self'"
+)
 SHA256_RE = re.compile(r"^[0-9a-fA-F]{64}$")
 
 
@@ -62,9 +83,12 @@ def create_app() -> FastAPI:
                 return JSONResponse({"detail": "Fremde Herkunft abgelehnt."}, status_code=403)
         response = await call_next(request)
         response.headers["X-Content-Type-Options"] = "nosniff"
-        response.headers["X-Frame-Options"] = "DENY"
+        # SAMEORIGIN statt DENY: die Import-Prüfung zeigt PDFs in einem iframe.
+        response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["Referrer-Policy"] = "same-origin"
-        response.headers["Cache-Control"] = "no-store"
+        response.headers.setdefault("Content-Security-Policy", CSP)
+        if not request.url.path.startswith("/static/"):
+            response.headers["Cache-Control"] = "no-store"
         return response
 
     # --- Fehlerbehandlung: kontrolliert, ohne interne Details --------------------
@@ -333,6 +357,163 @@ def create_app() -> FastAPI:
             raise HTTPException(409, "Bereits übernommene Importe können nicht verworfen werden.")
         i.status = "rejected"
         db.commit()
+
+    # --- Ergänzungen für die Weboberfläche ------------------------------------
+
+    @app.get("/courses")
+    def list_courses(db: Session = Depends(get_db), _: User = viewer):
+        rows = db.scalars(select(Course).options(selectinload(Course.tees)).order_by(Course.name))
+        return [
+            {"id": c.id, "name": c.name,
+             "tees": [{"id": t.id, "name": t.name, "gender": t.gender, "holes_count": t.holes_count,
+                       "par": t.par, "course_rating": t.course_rating,
+                       "slope_rating": t.slope_rating} for t in c.tees]}
+            for c in rows
+        ]
+
+    @app.post("/courses/{course_id}/tees", status_code=201)
+    def add_tee(course_id: int, body: schemas.TeeIn, db: Session = Depends(get_db),
+                _: User = editor):
+        if db.get(Course, course_id) is None:
+            raise HTTPException(404, "Platz nicht gefunden.")
+        tee = services.create_tee(db, course_id, body.model_dump())
+        db.commit()
+        return {"id": tee.id}
+
+    @app.patch("/players/{player_id}")
+    def patch_player(player_id: int, body: schemas.PlayerPatch, db: Session = Depends(get_db),
+                     _: User = editor):
+        p = db.get(Player, player_id)
+        if p is None:
+            raise HTTPException(404, "Spieler nicht gefunden.")
+        for k, v in body.model_dump(exclude_unset=True).items():
+            setattr(p, k, v)
+        db.commit()
+        return {"id": p.id}
+
+    @app.get("/teams")
+    def list_teams(db: Session = Depends(get_db), _: User = viewer):
+        teams = db.scalars(select(Team).order_by(Team.name)).all()
+        members = db.execute(select(TeamMember.team_id, Player.id, Player.first_name,
+                                    Player.last_name)
+                             .join(Player, Player.id == TeamMember.player_id)
+                             .order_by(Player.last_name)).all()
+        by_team: dict[int, list] = {}
+        for team_id, pid, fn, ln in members:
+            by_team.setdefault(team_id, []).append({"id": pid, "name": f"{fn} {ln}"})
+        return [{"id": t.id, "name": t.name, "members": by_team.get(t.id, [])} for t in teams]
+
+    @app.put("/teams/{team_id}/members")
+    def set_team_members(team_id: int, body: schemas.TeamMembersIn, db: Session = Depends(get_db),
+                         _: User = editor):
+        if db.get(Team, team_id) is None:
+            raise HTTPException(404, "Mannschaft nicht gefunden.")
+        db.execute(delete(TeamMember).where(TeamMember.team_id == team_id))
+        for pid in set(body.player_ids):
+            db.add(TeamMember(team_id=team_id, player_id=pid))
+        db.commit()
+        return {"id": team_id}
+
+    @app.get("/tournaments")
+    def list_tournaments(db: Session = Depends(get_db), _: User = viewer):
+        counts = dict(db.execute(select(TournamentEntry.tournament_id, func.count())
+                                 .group_by(TournamentEntry.tournament_id)).all())
+        rows = db.execute(select(Tournament, Course.name).join(Course, Course.id == Tournament.course_id)
+                          .order_by(Tournament.played_on.desc(), Tournament.name)).all()
+        return [
+            {"id": t.id, "name": t.name, "played_on": t.played_on, "course": cname,
+             "holes_count": t.holes_count, "start_hole": t.start_hole,
+             "allowance_pct": t.allowance_pct, "entries": counts.get(t.id, 0)}
+            for t, cname in rows
+        ]
+
+    @app.get("/tournaments/{tournament_id}")
+    def get_tournament(tournament_id: int, db: Session = Depends(get_db), _: User = viewer):
+        return services.tournament_detail(db, tournament_id)
+
+    @app.delete("/entries/{entry_id}", status_code=204)
+    def delete_entry(entry_id: int, db: Session = Depends(get_db), _: User = editor):
+        services.delete_entry(db, entry_id)
+        db.commit()
+
+    @app.get("/entries/{entry_id}")
+    def get_entry(entry_id: int, db: Session = Depends(get_db), _: User = viewer):
+        return services.entry_holes(db, entry_id)
+
+    @app.post("/entries/{entry_id}/scorecard/preview")
+    def preview_scorecard(entry_id: int, body: schemas.PreviewIn, db: Session = Depends(get_db),
+                          _: User = editor):
+        return services.preview_scorecard(db, entry_id, body.strokes)
+
+    @app.get("/imports")
+    def list_imports(db: Session = Depends(get_db), _: User = editor):
+        rows = db.scalars(select(Import).order_by(Import.created_at.desc()).limit(200))
+        return [
+            {"id": i.id, "kind": i.kind, "status": i.status, "original_name": i.original_name,
+             "created_at": i.created_at, "cards": len((i.parsed or {}).get("cards", [])),
+             "error": i.error}
+            for i in rows
+        ]
+
+    @app.get("/imports/{import_id}/file")
+    def import_file(import_id: int, db: Session = Depends(get_db),
+                    s: Settings = Depends(get_settings), _: User = editor):
+        i = db.get(Import, import_id)
+        if i is None:
+            raise HTTPException(404, "Import nicht gefunden.")
+        path = stored_file(s, i.sha256)
+        if not path.is_file():
+            raise HTTPException(404, "Datei nicht mehr vorhanden.")
+        if i.kind == "pdf":
+            media = "application/pdf"
+        elif i.kind == "csv":
+            media = "text/plain; charset=utf-8"
+        else:
+            with path.open("rb") as f:
+                media = "image/png" if f.read(4) == b"\x89PNG" else "image/jpeg"
+        # Hochgeladene Inhalte nie als aktive Seite ausführen lassen. Für PDFs
+        # kein "sandbox", weil Browser den eingebauten PDF-Viewer dann blockieren;
+        # Skripte im PDF führt der Viewer ohnehin nicht im Seitenkontext aus.
+        csp = ("default-src 'none'; frame-ancestors 'self'" if i.kind == "pdf" else
+               "sandbox; default-src 'none'; img-src 'self'; style-src 'unsafe-inline'; "
+               "frame-ancestors 'self'")
+        return FileResponse(path, media_type=media, headers={
+            "Content-Security-Policy": csp, "Content-Disposition": "inline",
+        })
+
+    @app.get("/users")
+    def list_users(db: Session = Depends(get_db), _: User = Depends(security.require("admin"))):
+        return [{"id": u.id, "email": u.email, "role": u.role, "is_active": u.is_active}
+                for u in db.scalars(select(User).order_by(User.email))]
+
+    @app.patch("/users/{user_id}")
+    def patch_user(user_id: int, body: schemas.UserPatch, db: Session = Depends(get_db),
+                   me: User = Depends(security.require("admin"))):
+        u = db.get(User, user_id)
+        if u is None:
+            raise HTTPException(404, "Nutzer nicht gefunden.")
+        if u.id == me.id and (body.role not in (None, "admin") or body.is_active is False):
+            raise HTTPException(409, "Das eigene Admin-Konto kann nicht herabgestuft werden.")
+        if body.role is not None:
+            u.role = body.role
+        if body.is_active is not None:
+            u.is_active = body.is_active
+            if not body.is_active:
+                db.execute(delete(AuthSession).where(AuthSession.user_id == u.id))
+        if body.password is not None:
+            u.password_hash = security.hash_password(body.password)
+            db.execute(delete(AuthSession).where(AuthSession.user_id == u.id))
+        db.commit()
+        return {"id": u.id}
+
+    # --- Weboberfläche ------------------------------------------------------------
+
+    if WEB_DIR.is_dir():
+        app.mount("/static", StaticFiles(directory=WEB_DIR), name="static")
+
+        @app.get("/", include_in_schema=False)
+        def index():
+            return FileResponse(WEB_DIR / "index.html", media_type="text/html")
 
     return app
 

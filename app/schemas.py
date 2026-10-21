@@ -97,3 +97,25 @@ class Assignment(Strict):
 
 class ApplyImportIn(Strict):
     assignments: list[Assignment] = Field(min_length=1, max_length=500)
+
+
+class PlayerPatch(Strict):
+    first_name: Name | None = None
+    last_name: Name | None = None
+    gender: Gender | None = None
+    dgv_id: Annotated[str, StringConstraints(strip_whitespace=True, max_length=32)] | None = None
+    handicap_index: HI | None = None
+
+
+class TeamMembersIn(Strict):
+    player_ids: list[int] = Field(max_length=200)
+
+
+class PreviewIn(Strict):
+    strokes: list[Strokes] = Field(min_length=9, max_length=18)
+
+
+class UserPatch(Strict):
+    role: Literal["admin", "editor", "viewer"] | None = None
+    is_active: bool | None = None
+    password: Annotated[str, StringConstraints(min_length=12, max_length=1024)] | None = None

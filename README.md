@@ -3,8 +3,28 @@
 Auswertung von Golf-Scorekarten für Clubmannschaften: Brutto/Netto, Stableford,
 Einzel- und Mannschaftswertung. Selbst gehostet, vollständig unter eigener Kontrolle.
 
-**Stand:** Backend-Fundament (API, Datenbank, WHS-Berechnung, Import-Pipeline).
-Die Weboberfläche folgt als nächster Schritt.
+**Stand:** Backend (API, Datenbank, WHS-Berechnung, Import-Pipeline) und Weboberfläche für den
+Rechner. Die Erfassung auf dem Handy direkt auf dem Platz folgt später.
+
+## Weboberfläche
+
+Unter der Adresse des Servers (z. B. `https://192.168.178.24`) nach der Anmeldung:
+
+| Bereich | Funktion |
+|---|---|
+| Plätze | Platz mit Abschlägen anlegen: CR, SR, Par, je Loch Par und Loch-HCP (doppelte Loch-HCP werden rot markiert) |
+| Spieler | Anlegen, bearbeiten, suchen; HCP-Index in deutscher Schreibweise (`18,4`, `+1,2`) |
+| Mannschaften | Anlegen und Spieler per Häkchen zuordnen |
+| Turniere | Anlegen (18 Loch, 9 Loch vorne/hinten, Handicap-Anteil), Spieler einzeln oder als ganze Mannschaft melden |
+| Scorekarte | Loch-Raster mit Live-Auswertung (Vorgabeschläge, Punkte je Loch, Brutto/Netto, Stableford); Cursor springt automatisch weiter, `-` = gestrichen; Status Entwurf/Eingereicht/Bestätigt |
+| Rangliste | Stableford/Zählspiel, brutto/netto, Mannschaftswertung mit „beste N“ |
+| Importe | CSV/PDF/Foto hochladen, Original neben den erkannten Werten prüfen, automatische Namenszuordnung, korrigieren, übernehmen |
+| Nutzer | (nur Admin) Konten anlegen, Rollen, sperren, Passwort setzen |
+
+Die Oberfläche ist reines HTML/CSS/JavaScript ohne Build-Schritt (`app/web/`) und wird von der App
+selbst ausgeliefert. Alle Berechnungen passieren auf dem Server; die Live-Anzeige nutzt einen
+Vorschau-Endpunkt, der nichts speichert. Eine strikte Content-Security-Policy erlaubt nur eigene
+Skripte; Daten werden ausschließlich als Text ins DOM eingesetzt.
 
 ## Aufbau
 
@@ -107,9 +127,10 @@ Alternativ für andere Umgebungen: `docker compose up -d` (siehe `docker-compose
 
 ## Bekannte Grenzen / nächste Schritte
 
-- Weboberfläche (Erfassung Plätze, Spieler, Turniere, Scorekarten, Import-Prüfung)
+- Scorekarten-Erfassung auf dem Handy
 - Separate 9-Loch-Course/Slope-Ratings
-- Bearbeiten/Löschen von Stammdaten (bisher nur Anlegen)
+- Bearbeiten/Löschen von Plätzen, Turnieren und Mannschaften (Spieler sind bearbeitbar, Meldungen löschbar)
+- Automatisierte Browser-Tests der Oberfläche in der CI (bisher manuell mit Playwright geprüft)
 - Import-Verarbeitung (OCR) als Hintergrundjob statt im Request
 - DGV-Anbindung als spätere Import-Schnittstelle
 

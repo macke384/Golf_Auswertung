@@ -277,3 +277,112 @@ def apply_import(db: Session, import_id: int, assignments: list[dict]) -> list[S
     imp.status = "applied"
     db.flush()
     return out
+
+
+# --- Lesemodelle für die Oberfläche ----------------------------------------------
+
+
+def result_dict(r: whs.RoundResult) -> dict:
+    return {
+        "playing_hcp": r.playing_hcp,
+        "complete": r.complete,
+        "gross_strokes": r.gross_strokes,
+        "net_strokes": r.net_strokes,
+        "gross_stableford": r.gross_stableford,
+        "net_stableford": r.net_stableford,
+        "holes": [h.__dict__ for h in r.holes],
+    }
+
+
+def preview_scorecard(db: Session, entry_id: int, values: list[int | None]) -> dict:
+    """Rechnet eine Scorekarte aus, ohne zu speichern (Live-Anzeige beim Erfassen).
+
+    Unmögliche Werte führen hier nicht zu einem Fehlerstatus, sondern werden
+    als errors zurückgegeben, damit die Oberfläche sie neben dem Feld zeigt.
+    """
+    ctx = load_entry(db, entry_id)
+    strokes = strokes_from_list(ctx.holes, values)
+    check = plausibility.check_strokes(ctx.holes, strokes)
+    if not check.ok:
+        return {"errors": check.errors, "warnings": check.warnings, "result": None}
+    r = whs.evaluate_round(ctx.holes, strokes, ctx.entry.playing_handicap)
+    return {
+        "errors": [],
+        "warnings": check.warnings + plausibility.check_result(r).warnings,
+        "result": result_dict(r),
+    }
+
+
+def entry_holes(db: Session, entry_id: int) -> dict:
+    """Lochdaten und Vorgabeschläge einer Teilnahme, auch ohne Scorekarte."""
+    ctx = load_entry(db, entry_id)
+    recv = whs.strokes_received(ctx.holes, ctx.entry.playing_handicap)
+    player = db.get(Player, ctx.entry.player_id)
+    return {
+        "entry_id": ctx.entry.id,
+        "tournament_id": ctx.tournament.id,
+        "tournament": ctx.tournament.name,
+        "player": f"{player.first_name} {player.last_name}",  # type: ignore[union-attr]
+        "tee": ctx.tee.name,
+        "handicap_index": ctx.entry.handicap_index,
+        "playing_hcp": ctx.entry.playing_handicap,
+        "holes": [
+            {"number": h.number, "par": h.par, "stroke_index": h.stroke_index,
+             "received": recv[h.number]}
+            for h in ctx.holes
+        ],
+    }
+
+
+def tournament_detail(db: Session, tournament_id: int) -> dict:
+    from app.models import Course, Team
+
+    t = db.get(Tournament, tournament_id)
+    if t is None:
+        raise DomainError(404, "Turnier nicht gefunden.")
+    course = db.get(Course, t.course_id)
+    q = (
+        select(TournamentEntry, Player, Tee, Team, Scorecard)
+        .join(Player, Player.id == TournamentEntry.player_id)
+        .join(Tee, Tee.id == TournamentEntry.tee_id)
+        .outerjoin(Team, Team.id == TournamentEntry.team_id)
+        .outerjoin(Scorecard, Scorecard.entry_id == TournamentEntry.id)
+        .where(TournamentEntry.tournament_id == tournament_id)
+        .order_by(Player.last_name, Player.first_name)
+        .options(selectinload(Scorecard.scores), selectinload(Tee.holes))
+    )
+    entries = []
+    for e, p, tee, team, card in db.execute(q).all():
+        summary = None
+        if card is not None:
+            strokes = {s.hole_number: s.strokes for s in card.scores}
+            r = whs.evaluate_round(round_holes(t, tee), strokes, e.playing_handicap)
+            summary = {
+                "status": card.status, "version": card.version, "source": card.source,
+                "warnings": len(card.warnings or []), "complete": r.complete,
+                "gross_strokes": r.gross_strokes, "net_stableford": r.net_stableford,
+                "gross_stableford": r.gross_stableford,
+            }
+        entries.append({
+            "id": e.id, "player_id": p.id, "player": f"{p.first_name} {p.last_name}",
+            "team_id": e.team_id, "team": team.name if team else None,
+            "tee_id": tee.id, "tee": f"{tee.name} ({tee.gender})",
+            "handicap_index": e.handicap_index, "playing_hcp": e.playing_handicap,
+            "scorecard": summary,
+        })
+    return {
+        "id": t.id, "name": t.name, "played_on": t.played_on, "course_id": t.course_id,
+        "course": course.name if course else None, "holes_count": t.holes_count,
+        "start_hole": t.start_hole, "allowance_pct": t.allowance_pct, "entries": entries,
+    }
+
+
+def delete_entry(db: Session, entry_id: int) -> None:
+    entry = db.scalar(select(TournamentEntry).where(TournamentEntry.id == entry_id).with_for_update())
+    if entry is None:
+        raise DomainError(404, "Teilnahme nicht gefunden.")
+    card = db.scalar(select(Scorecard).where(Scorecard.entry_id == entry_id))
+    if card is not None and card.status == "confirmed":
+        raise DomainError(409, "Teilnahmen mit bestätigter Scorekarte können nicht gelöscht werden.")
+    db.delete(entry)
+    db.flush()
