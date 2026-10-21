@@ -81,7 +81,7 @@ golf-update --admin deine@adresse.de      # ersten Admin anlegen
 ```bash
 # golf-app:  systemctl stop golf-auswertung
 # golf-db:
-sudo -u postgres pg_restore --clean --if-exists -d golf /var/backups/golf/golf_<DATUM>.dump
+runuser -u postgres -- pg_restore --clean --if-exists -d golf /var/backups/golf/golf_<DATUM>.dump
 # golf-app:  systemctl start golf-auswertung
 ```
 

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installiert PostgreSQL im Datenbank-LXC (Debian 13) für Golf_Auswertung.
 #
-#   sudo ./install.sh <IP-des-App-LXC>
+#   ./install.sh <IP-des-App-LXC>      (als root)
 #
 # - Datenbank "golf" mit Benutzer "golf" und zufälligem Passwort
 # - Zugriff ausschließlich von der angegebenen App-IP (scram-sha-256)
@@ -18,6 +18,8 @@ DB_NAME=golf
 DB_USER=golf
 
 die() { echo "FEHLER: $*" >&2; exit 1; }
+# Debian-LXC-Vorlagen enthalten kein sudo; runuser gehört zum Grundsystem.
+as_pg() { runuser -u postgres -- "$@"; }
 
 [[ $EUID -eq 0 ]] || die "Bitte als root ausführen."
 [[ -n "$APP_IP" ]] || die "Aufruf: $0 <IP-des-App-LXC>"
@@ -59,21 +61,27 @@ PW_NEW=""
 set_password() {
   local verb="$1"
   PW_NEW="$(python3 -c 'import secrets; print(secrets.token_urlsafe(32))')"
-  sudo -u postgres psql -q -v ON_ERROR_STOP=1 <<SQL
+  as_pg psql -q -v ON_ERROR_STOP=1 <<SQL
 \set pw '${PW_NEW}'
 ${verb} ROLE ${DB_USER} LOGIN PASSWORD :'pw';
 SQL
 }
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'" | grep -q 1; then
+if [[ "$(as_pg psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='${DB_USER}'")" != 1 ]]; then
   set_password CREATE
 elif [[ "${RESET_PASSWORD:-0}" == "1" ]]; then
   set_password ALTER
 fi
-if ! sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'" | grep -q 1; then
-  sudo -u postgres createdb -O "${DB_USER}" -E UTF8 "${DB_NAME}"
+if [[ "$(as_pg psql -tAc "SELECT 1 FROM pg_database WHERE datname='${DB_NAME}'")" != 1 ]]; then
+  # Immer UTF-8, unabhängig von der Spracheinstellung des Containers
+  # (ohne LANG legt Debian den Cluster mit SQL_ASCII an).
+  as_pg createdb -O "${DB_USER}" -E UTF8 --locale=C.UTF-8 -T template0 "${DB_NAME}"
+fi
+ENC="$(as_pg psql -tAc "SELECT pg_encoding_to_char(encoding) FROM pg_database WHERE datname='${DB_NAME}'")"
+if [[ "$ENC" != UTF8 ]]; then
+  die "Datenbank '${DB_NAME}' hat Kodierung ${ENC} statt UTF8. Löschen mit: runuser -u postgres -- dropdb ${DB_NAME} — dann Skript erneut starten."
 fi
 # Niemand außer dem Eigentümer darf sich verbinden oder Objekte anlegen.
-sudo -u postgres psql -q -d "${DB_NAME}" -c "REVOKE ALL ON DATABASE ${DB_NAME} FROM PUBLIC;" \
+as_pg psql -q -d "${DB_NAME}" -c "REVOKE ALL ON DATABASE ${DB_NAME} FROM PUBLIC;" \
   -c "REVOKE CREATE ON SCHEMA public FROM PUBLIC;"
 
 echo "==> Backup einrichten (${BACKUP_DIR}, ${RETENTION_DAYS} Tage)"

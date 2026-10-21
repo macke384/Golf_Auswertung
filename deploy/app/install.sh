@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Installiert Golf_Auswertung im App-LXC (Debian 13): App + Caddy + Weboberfläche.
 #
-#   sudo DATABASE_URL='postgresql+psycopg://golf:...@<DB-IP>:5432/golf?sslmode=require' \
+#   DATABASE_URL='postgresql+psycopg://golf:...@<DB-IP>:5432/golf?sslmode=require' \
 #        DOMAIN=golf.fritz.box ./install.sh
 #
 # Optional:
