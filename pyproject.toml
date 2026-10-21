@@ -1,0 +1,30 @@
+[project]
+name = "golf-auswertung"
+version = "0.1.0"
+description = "Auswertung von Golf-Scorekarten (Brutto/Netto, Stableford) für Clubmannschaften"
+requires-python = ">=3.12"
+license = { text = "MIT" }
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "sqlalchemy>=2.0",
+    "psycopg[binary]>=3.2",
+    "alembic>=1.13",
+    "pydantic-settings>=2.4",
+    "email-validator>=2.1",
+    "argon2-cffi>=23.1",
+    "python-multipart>=0.0.9",
+    "pdfplumber>=0.11",
+    "pillow>=10.4",
+    "pytesseract>=0.3.10",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "postgres: braucht eine echte PostgreSQL-Instanz (TEST_DATABASE_URL)",
+    "ocr: braucht ein installiertes tesseract mit deutschem Sprachpaket",
+]

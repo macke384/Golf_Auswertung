@@ -1,0 +1,49 @@
+# Betrieb in einem Proxmox-LXC mit Docker (Container-Option "nesting=1" nötig).
+# Start:  cp .env.example .env  →  Werte setzen  →  docker compose up -d
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: golf
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD fehlt}
+      POSTGRES_DB: golf
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U golf"]
+      interval: 5s
+      retries: 10
+    # Kein Port nach außen: die DB ist nur für die App erreichbar.
+
+  app:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      GOLF_ENV: production
+      GOLF_DATABASE_URL: postgresql+psycopg://golf:${POSTGRES_PASSWORD}@db:5432/golf
+      GOLF_SESSION_SECRET: ${GOLF_SESSION_SECRET:?GOLF_SESSION_SECRET fehlt}
+      GOLF_FORWARDED_ALLOW_IPS: "*"  # nur Caddy im internen Netz erreicht die App
+    volumes:
+      - storage:/data/storage
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on: [app]
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      GOLF_DOMAIN: ${GOLF_DOMAIN:?GOLF_DOMAIN fehlt}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+
+volumes:
+  pgdata:
+  storage:
+  caddy_data:

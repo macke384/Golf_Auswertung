@@ -1,0 +1,19 @@
+# Für reinen Heimnetz-Betrieb ohne öffentliche Domain:
+#   GOLF_DOMAIN=golf.fritz.box  und unten "tls internal" einkommentieren.
+{$GOLF_DOMAIN} {
+	# tls internal
+
+	encode gzip
+
+	# Uploads: Caddy begrenzt bereits vor der App (App prüft zusätzlich).
+	request_body {
+		max_size 16MB
+	}
+
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+
+	reverse_proxy app:8000
+}
