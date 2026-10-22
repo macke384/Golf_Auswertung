@@ -17,6 +17,7 @@ weder geloggt noch an die Oberfläche gegeben.
 """
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import urllib.parse
@@ -28,9 +29,10 @@ from sqlalchemy import select, text
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session
 
-from app.catalog.base import CatalogError, Fetcher, http_get_json
+from app.catalog.base import AuthRejected, CatalogError, Fetcher, http_get_json
 from app.models import ApiUsage, CatalogCache
 
+log = logging.getLogger(__name__)
 SOURCE = "golfcourseapi"
 ID_RE = re.compile(r"^[0-9abcdefghjkmnpqrstvwxyz]{8}$")
 SEARCH_TTL = timedelta(days=7)
@@ -87,6 +89,14 @@ class Course(_Lenient):
     tees: dict[str, list[TeeBox]] = Field(default_factory=dict)
 
 
+def clean_key(raw: str) -> str:
+    """Entfernt Leerraum, Zeilenenden (\\r von Windows/Mac-Editoren) und umschließende Anführungszeichen."""
+    k = (raw or "").strip().strip("\r\n").strip()
+    if len(k) >= 2 and k[0] == k[-1] and k[0] in "'\"":
+        k = k[1:-1].strip()
+    return k
+
+
 class OwnQuotaReached(CatalogError):
     """Unser eigenes Tageslimit ist erreicht (es wurde nicht angefragt)."""
 
@@ -104,7 +114,11 @@ class GolfCourseAPI:
         fetcher: Fetcher = http_get_json,
     ):
         self.base_url = base_url.rstrip("/")
-        self._api_key = api_key
+        self._api_key = clean_key(api_key)
+        # Laut Spezifikation: "Bearer" bevorzugt, "Key" (Legacy) weiter unterstützt.
+        # Wir beginnen mit "Key" (funktioniert bei alten und neuen Servern) und
+        # merken uns das Verfahren, das zuletzt akzeptiert wurde.
+        self._schemes = ["Key", "Bearer"]
         self.daily_limit = daily_limit
         self.sessionmaker = sessionmaker
         self.fetcher = fetcher
@@ -193,9 +207,7 @@ class GolfCourseAPI:
                 raise CatalogError("Für golfcourseapi.com ist kein API-Schlüssel eingerichtet "
                                    "(GOLF_GOLFCOURSEAPI_KEY).", 503)
             try:
-                self._reserve()
-                raw = self.fetcher(f"{self.base_url}{path}",
-                                   headers={"Authorization": f"Bearer {self._api_key}"})
+                raw = self._authorized_get(f"{self.base_url}{path}")
                 value = parse(raw)
             except CatalogError as e:
                 if e.status == 429 and not isinstance(e, OwnQuotaReached):
@@ -206,6 +218,29 @@ class GolfCourseAPI:
                 raise
             self._cache_put(key, value)
             return value, {"cached": False, "stale": False, "fetched_at": now.isoformat()}
+
+    def _authorized_get(self, url: str) -> Any:
+        """Abruf mit Authentifizierung; bei 401 einmal das andere Verfahren versuchen.
+
+        Jeder Versuch wird vorher gezählt (lieber zu vorsichtig mit dem Kontingent).
+        """
+        last_err: CatalogError | None = None
+        for scheme in list(self._schemes):
+            self._reserve()
+            try:
+                raw = self.fetcher(url, headers={"Authorization": f"{scheme} {self._api_key}"})
+            except AuthRejected as e:
+                log.warning("golfcourseapi.com lehnt Schlüssel ab (Verfahren %s, Länge %d)",
+                            scheme, len(self._api_key))
+                last_err = e
+                continue
+            if self._schemes[0] != scheme:
+                self._schemes = [scheme] + [x for x in self._schemes if x != scheme]
+            return raw
+        raise CatalogError(
+            "golfcourseapi.com lehnt den API-Schlüssel ab. Bitte den Schlüssel in "
+            "/etc/golf-auswertung/golf.env (GOLF_GOLFCOURSEAPI_KEY) prüfen und den Dienst neu starten.",
+            last_err.status if last_err else 502)
 
     # Öffentliche Methoden ------------------------------------------------------
 

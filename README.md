@@ -91,7 +91,7 @@ aus. „unsicher“ markierte Werte, abweichende Pars und 27-Loch-Anlagen ersche
 - Gleichzeitige identische Anfragen warten aufeinander und verbrauchen nur eine Anfrage.
 - Die Oberfläche zeigt „Heute noch X von Y Anfragen“.
 - Der API-Schlüssel steht **nur** in der Server-Konfiguration (`GOLF_GOLFCOURSEAPI_KEY`), wird als
-  Bearer-Token gesendet und nie geloggt oder an den Browser gegeben.
+  zuerst als `Key <Schlüssel>`, bei Ablehnung als `Bearer <Schlüssel>` gesendet (das akzeptierte Verfahren wird gemerkt) und nie geloggt oder an den Browser gegeben.
 
 Abschalten: `GOLF_COURSE_CATALOG_URL=` bzw. `GOLF_GOLFCOURSEAPI_URL=` (leer).
 Der App-LXC braucht ausgehendes HTTPS zu beiden Diensten.

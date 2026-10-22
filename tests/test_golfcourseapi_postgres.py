@@ -32,7 +32,7 @@ def test_search_parses_sorts_germany_first_and_sends_bearer(gca):
     assert res["results"][0]["city"] == "Wallerfangen"
     url, headers = gca.calls[0]
     assert url.startswith("https://api.example.invalid/v1/search?search_query=Saarbr")
-    assert headers == {"Authorization": f"Bearer {KEY}"}
+    assert headers == {"Authorization": f"Key {KEY}"}
     assert KEY not in str(res)
 
 
@@ -205,3 +205,45 @@ def test_api_quota_message(gclient, db, gca):
     login(gclient)
     r = gclient.get("/course-catalog/golfcourseapi/search", params={"q": "Saarbrücken"})
     assert r.status_code == 429 and "Tageslimit" in r.json()["detail"]
+
+
+def _auth_fake(accept: str, calls: list):
+    from app.catalog.base import AuthRejected
+
+    inner = fx.fake()
+
+    def fetch(url, headers=None):
+        calls.append(headers["Authorization"])
+        if headers["Authorization"] != accept:
+            raise AuthRejected("Der API-Schlüssel für den Platzkatalog fehlt oder ist ungültig.", 502)
+        return inner(url, headers)
+
+    return fetch
+
+
+def test_falls_back_to_bearer_and_remembers(db, migrated_engine):
+    calls = []
+    api = GolfCourseAPI("https://api.example.invalid", KEY, 10, sessionmaker(bind=migrated_engine),
+                        fetcher=_auth_fake(f"Bearer {KEY}", calls))
+    api.search("aaa")
+    api.search("bbb")
+    assert calls == [f"Key {KEY}", f"Bearer {KEY}", f"Bearer {KEY}"]
+    assert api.usage()["used"] == 3  # jeder Versuch zählt
+
+
+def test_key_cleaned_from_env_file_artifacts(db, migrated_engine):
+    calls = []
+    api = GolfCourseAPI("https://api.example.invalid", f' "{KEY}"\r\n', 10,
+                        sessionmaker(bind=migrated_engine), fetcher=_auth_fake(f"Key {KEY}", calls))
+    api.search("aaa")
+    assert calls == [f"Key {KEY}"]
+
+
+def test_both_schemes_rejected_gives_clear_message(db, migrated_engine):
+    calls = []
+    api = GolfCourseAPI("https://api.example.invalid", KEY, 10, sessionmaker(bind=migrated_engine),
+                        fetcher=_auth_fake("niemals", calls))
+    with pytest.raises(CatalogError) as e:
+        api.search("aaa")
+    assert len(calls) == 2 and "golf.env" in e.value.message and e.value.status == 502
+    assert KEY not in e.value.message

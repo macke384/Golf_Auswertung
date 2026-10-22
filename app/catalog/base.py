@@ -22,6 +22,13 @@ class CatalogError(Exception):
         self.status = status
 
 
+class AuthRejected(CatalogError):
+    """Quelle antwortet mit 401 (Schlüssel fehlt/ungültig/falsches Verfahren).
+
+    Bewusst Status 502 statt 401 für unsere API: ein 401 würde die Oberfläche abmelden.
+    """
+
+
 def http_get_json(url: str, headers: dict[str, str] | None = None) -> Any:
     """GET mit Timeout und Größenlimit; liefert geparstes JSON oder CatalogError.
 
@@ -41,7 +48,7 @@ def http_get_json(url: str, headers: dict[str, str] | None = None) -> Any:
         if e.code == 404:
             raise CatalogError("Platz im Katalog nicht gefunden.", 404) from None
         if e.code == 401:
-            raise CatalogError("Der API-Schlüssel für den Platzkatalog fehlt oder ist ungültig.", 502) from None
+            raise AuthRejected("Der API-Schlüssel für den Platzkatalog fehlt oder ist ungültig.", 502) from None
         if e.code == 403:
             raise CatalogError("Der Platzkatalog verweigert den Zugriff (Konto nicht aktiv oder Funktion "
                                "nicht im Tarif enthalten).", 502) from None
