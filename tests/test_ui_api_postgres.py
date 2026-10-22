@@ -10,7 +10,12 @@ def test_index_and_static_served_with_csp(client):
     r = client.get("/")
     assert r.status_code == 200 and "text/html" in r.headers["content-type"]
     assert "script-src 'self'" in r.headers["content-security-policy"]
-    assert client.get("/static/app.js").status_code == 200
+    js = client.get("/static/app.js")
+    assert js.status_code == 200 and js.headers["cache-control"] == "no-cache" and js.headers.get("etag")
+    # Unveränderte Datei → 304 ohne Inhalt
+    again = client.get("/static/app.js", headers={"If-None-Match": js.headers["etag"]})
+    assert again.status_code == 304
+    assert r.headers["cache-control"] == "no-store"
 
 
 def test_lists_and_tournament_detail(client, db):

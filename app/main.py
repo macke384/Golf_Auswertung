@@ -91,7 +91,11 @@ def create_app() -> FastAPI:
         response.headers["X-Frame-Options"] = "SAMEORIGIN"
         response.headers["Referrer-Policy"] = "same-origin"
         response.headers.setdefault("Content-Security-Policy", CSP)
-        if not request.url.path.startswith("/static/"):
+        if request.url.path.startswith("/static/"):
+            # Immer beim Server nachfragen (ETag → meist 304, kaum Last). Ohne diese
+            # Anweisung nutzen Browser nach einem Update teils noch alte Skripte.
+            response.headers["Cache-Control"] = "no-cache"
+        else:
             response.headers["Cache-Control"] = "no-store"
         return response
 
