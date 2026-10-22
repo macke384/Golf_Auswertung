@@ -8,7 +8,9 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from typing import Literal
 
+import anyio
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request, Response
+from fastapi import Path as Path_
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
@@ -20,6 +22,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app import schemas, security, services
 from app.config import Settings, get_settings
 from app.db import get_db, get_sessionmaker
+from app.catalog.handicap_report import Catalog, CatalogError
 from app.imports import service as import_service
 from app.imports.upload import UploadError, stored_file
 from app.models import (
@@ -99,6 +102,10 @@ def create_app() -> FastAPI:
         if e.code:
             body["code"] = e.code
         return JSONResponse(body, status_code=e.status)
+
+    @app.exception_handler(CatalogError)
+    async def _catalog(_: Request, e: CatalogError):
+        return JSONResponse({"detail": e.message}, status_code=e.status)
 
     @app.exception_handler(UploadError)
     async def _upload(_: Request, e: UploadError):
@@ -219,9 +226,15 @@ def create_app() -> FastAPI:
 
     @app.post("/courses", status_code=201)
     def create_course(body: schemas.CourseIn, db: Session = Depends(get_db), _: User = editor):
-        c = Course(name=body.name)
+        c = Course(name=body.name, source_ref=body.source_ref)
         db.add(c)
-        db.flush()
+        try:
+            db.flush()
+        except IntegrityError:
+            db.rollback()
+            if body.source_ref and db.scalar(select(Course.id).where(Course.source_ref == body.source_ref)):
+                raise HTTPException(409, "Dieser Katalogplatz wurde bereits übernommen.")
+            raise HTTPException(409, "Es gibt schon einen Platz mit diesem Namen.")
         tee_ids = [services.create_tee(db, c.id, t.model_dump()).id for t in body.tees]
         db.commit()
         return {"id": c.id, "tee_ids": tee_ids}
@@ -238,7 +251,7 @@ def create_app() -> FastAPI:
         tournaments = db.scalar(select(func.count()).select_from(Tournament)
                                 .where(Tournament.course_id == c.id))
         return {
-            "id": c.id, "name": c.name, "tournaments": tournaments,
+            "id": c.id, "name": c.name, "tournaments": tournaments, "source_ref": c.source_ref,
             "tees": [
                 {"id": t.id, "name": t.name, "gender": t.gender, "holes_count": t.holes_count,
                  "course_rating": t.course_rating, "slope_rating": t.slope_rating, "par": t.par,
@@ -393,6 +406,55 @@ def create_app() -> FastAPI:
         db.commit()
 
     # --- Ergänzungen für die Weboberfläche ------------------------------------
+
+    # --- Platzkatalog (handicap.report) ----------------------------------------
+
+    app.state.catalog = Catalog(settings.course_catalog_url, settings.course_catalog_ttl_seconds) \
+        if settings.course_catalog_url else None
+
+    def _catalog_or_404() -> Catalog:
+        if app.state.catalog is None:
+            raise HTTPException(404, "Der Platzkatalog ist auf diesem Server abgeschaltet.")
+        return app.state.catalog
+
+    def _imported(db: Session, ids: list[str]) -> dict[str, int]:
+        refs = [f"handicap.report:{i}" for i in ids]
+        if not refs:
+            return {}
+        rows = db.execute(select(Course.source_ref, Course.id).where(Course.source_ref.in_(refs))).all()
+        return {ref.split(":", 1)[1]: cid for ref, cid in rows}
+
+    @app.get("/course-catalog/search")
+    async def catalog_search(
+        q: str = Query(default="", max_length=100),
+        bundesland: str | None = Query(default=None, max_length=60),
+        holes: Literal[9, 18] | None = None,
+        with_holes: bool = False,
+        db: Session = Depends(get_db),
+        _: User = editor,
+    ):
+        cat = _catalog_or_404()
+        if len(q.strip()) < 2 and not bundesland:
+            raise HTTPException(422, "Bitte mindestens 2 Zeichen eingeben oder ein Bundesland wählen.")
+        # Abruf blockiert (urllib) → im Threadpool, damit der Server nicht hängt.
+        res = await anyio.to_thread.run_sync(
+            lambda: cat.search(q, bundesland, holes, with_holes, limit=50))
+        imported = _imported(db, [r["id"] for r in res["results"]])
+        for r in res["results"]:
+            r["imported_course_id"] = imported.get(r["id"])
+        return res
+
+    @app.get("/course-catalog/bundeslaender")
+    async def catalog_bundeslaender(_: User = editor):
+        cat = _catalog_or_404()
+        return await anyio.to_thread.run_sync(cat.bundeslaender)
+
+    @app.get("/course-catalog/courses/{catalog_id}")
+    async def catalog_course(catalog_id: str = Path_(max_length=160), db: Session = Depends(get_db),
+                             _: User = editor):
+        cat = _catalog_or_404()
+        res = await anyio.to_thread.run_sync(lambda: cat.course(catalog_id))
+        return res | {"imported_course_id": _imported(db, [catalog_id]).get(catalog_id)}
 
     @app.get("/courses")
     def list_courses(db: Session = Depends(get_db), _: User = viewer):

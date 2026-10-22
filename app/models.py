@@ -91,6 +91,8 @@ class Course(Base):
     __tablename__ = "courses"
     id: Mapped[int] = mapped_column(primary_key=True)
     name: Mapped[str] = mapped_column(String(150), unique=True)
+    # Herkunft bei Import aus einem Katalog, z. B. "handicap.report:<id>" (verhindert Doppelimport)
+    source_ref: Mapped[str | None] = mapped_column(String(200), unique=True)
     tees: Mapped[list["Tee"]] = relationship(back_populates="course", cascade="all, delete-orphan")
 
 

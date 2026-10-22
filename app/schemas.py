@@ -64,6 +64,7 @@ class TeeIn(Strict):
 
 class CourseIn(Strict):
     name: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1, max_length=150)]
+    source_ref: Annotated[str, StringConstraints(pattern=r"^[a-z0-9.]{1,30}:[a-z0-9][a-z0-9-]{0,159}$")] | None = None
     tees: list[TeeIn] = Field(min_length=1, max_length=12)
 
 

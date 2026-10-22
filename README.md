@@ -12,7 +12,7 @@ Unter der Adresse des Servers (z. B. `https://192.168.178.24`) nach der Anmeldun
 
 | Bereich | Funktion |
 |---|---|
-| Plätze | Platz mit Abschlägen anlegen, umbenennen, löschen; Abschläge hinzufügen (Par und optional Loch-HCP von bestehendem Abschlag übernehmen), bearbeiten, löschen. Abschläge mit Meldungen: Änderung nur nach Rückfrage, Spielvorgaben werden neu berechnet; bestätigte Scorekarten sperren Änderungen |
+| Plätze | Platz im Katalog suchen (handicap.report, siehe unten) oder manuell anlegen; Platz umbenennen, löschen; Abschläge hinzufügen (Par und optional Loch-HCP von bestehendem Abschlag übernehmen), bearbeiten, löschen. Abschläge mit Meldungen: Änderung nur nach Rückfrage, Spielvorgaben werden neu berechnet; bestätigte Scorekarten sperren Änderungen |
 | Einzelrunden | Private Runden/Training eines Spielers (18 Loch, 9 Loch vorne/hinten, Notiz), Spielvorgabe mit 100 % Handicap-Anteil; gleiche Scorekarte und Auswertung wie im Turnier |
 | Spieler | Anlegen, bearbeiten, suchen; HCP-Index in deutscher Schreibweise (`18,4`, `+1,2`). Spielerseite mit persönlicher Auswertung: alle Runden (Turniere und Einzelrunden), bestes/Ø Brutto, beste/Ø Stableford netto, getrennt nach 18 und 9 Loch |
 | Mannschaften | Anlegen, umbenennen, löschen (nicht, solange in Turniermeldungen eingetragen), Spieler per Häkchen zuordnen |
@@ -61,6 +61,22 @@ tests/                 Unit-Tests + Integrationstests gegen echte PostgreSQL
 | Stechen | Letzte 9/6/3/1 (18 Loch) bzw. 6/3/1 (9 Loch) in Spielreihenfolge |
 | Mannschaft | Summe der besten N Netto-Stableford-Ergebnisse (N pro Abfrage wählbar) |
 | Einzelrunde | Technisch ein Turnier vom Typ `single` mit genau einer Meldung und 100 % Allowance – gleiche Berechnung, gleiche Absicherung |
+
+## Platzkatalog (handicap.report)
+
+Unter *Plätze → Platz im Katalog suchen* lassen sich Plätze aus dem öffentlichen Katalog von
+[handicap.report](https://handicap.report/api/v1/) suchen (Clubname, Ort, Bundesland, 9/18 Loch,
+„nur mit Lochdaten“). Ein Treffer zeigt Abschläge mit CR/Slope/Par und – falls vorhanden – Par und
+Loch-HCP je Loch. „Übernehmen“ füllt das Formular *Neuer Platz* vor; gespeichert wird erst nach Prüfung.
+
+- Abruf nur über unseren Server (feste URL, Timeout, Größenlimit, Schema-Prüfung), Antworten werden
+  1 Stunde zwischengespeichert; ist die Quelle ausgefallen, wird der letzte Stand genutzt.
+- Der Katalog enthält **keine PLZ**; Umlaute sind dort teils umschrieben, die Suche gleicht das aus.
+- Bei den meisten Plätzen fehlen Lochdaten → Par und Loch-HCP von der Scorekarte ergänzen
+  (für weitere Abschläge per Knopf von Abschlag 1 kopierbar).
+- „unsicher“ markierte Werte, abweichende Pars und 27-Loch-Anlagen werden als Hinweis angezeigt.
+- Übernommene Plätze merken sich ihre Herkunft (`source_ref`), ein Platz kann nicht doppelt übernommen werden.
+- Abschalten: `GOLF_COURSE_CATALOG_URL=` (leer). Der App-LXC braucht ausgehendes HTTPS zu handicap.report.
 
 ## Import
 

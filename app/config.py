@@ -43,6 +43,10 @@ class Settings(BaseSettings):
     # Temp-Dateien älter als das gelten nach einem Absturz als verwaist.
     orphan_grace_seconds: int = 3600
 
+    # Platzkatalog (handicap.report). Leer = Katalog abgeschaltet.
+    course_catalog_url: str = "https://handicap.report/api/v1/courses.php"
+    course_catalog_ttl_seconds: int = Field(default=3600, ge=60)
+
     # Login-Schutz
     login_max_failures: int = 5
     login_lock_minutes: int = 15

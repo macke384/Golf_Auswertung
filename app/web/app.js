@@ -5,6 +5,7 @@ import { coursesPage, courseNewPage, courseDetailPage } from "./pages-courses.js
 import { tournamentsPage, tournamentDetailPage, scorecardPage } from "./pages-tournaments.js";
 import { importsPage, importDetailPage } from "./pages-imports.js";
 import { roundsPage, playerDetailPage } from "./pages-rounds.js";
+import { catalogPage } from "./pages-catalog.js";
 
 export const state = { user: null };
 
@@ -24,6 +25,7 @@ const routes = [
   [/^\/mannschaften$/, teamsPage],
   [/^\/plaetze$/, coursesPage],
   [/^\/plaetze\/neu$/, courseNewPage],
+  [/^\/plaetze\/katalog$/, catalogPage, "edit"],
   [/^\/plaetze\/(\d+)$/, courseDetailPage],
   [/^\/importe$/, importsPage, "edit"],
   [/^\/importe\/(\d+)$/, importDetailPage, "edit"],

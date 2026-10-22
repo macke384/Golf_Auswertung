@@ -263,3 +263,11 @@ select.compact { min-height: 1.9rem; padding: .2rem .4rem; font-size: .9rem; }
 /* Leere Meldungs-Platzhalter belegen keine Rasterzelle; mit Inhalt über die volle Breite. */
 .form-grid > div:empty { display: none; }
 .form-grid > div:has(> .alert) { grid-column: 1 / -1; }
+
+/* Platzkatalog */
+input.big-search { width: 100%; font-size: 1.05rem; padding: .65rem .8rem; }
+.filters { margin-top: .75rem; }
+.alert.info { background: var(--info-soft); color: var(--info); }
+.warn-text { color: var(--warn); }
+.catalog-detail table { margin: .75rem 0; }
+button.copy-holes { margin-bottom: .5rem; }

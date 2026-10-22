@@ -9,7 +9,9 @@ export async function coursesPage() {
   const courses = await api("GET", "/courses");
   return h("section", { class: "page" },
     h("div", { class: "page-head" }, h("h1", {}, "Plätze"),
-      can.edit() ? h("a", { class: "button primary", href: "#/plaetze/neu" }, "Neuer Platz") : null),
+      can.edit() ? h("div", { class: "inline" },
+        h("a", { class: "button primary", href: "#/plaetze/katalog" }, "Platz im Katalog suchen"),
+        h("a", { class: "button", href: "#/plaetze/neu" }, "Manuell anlegen")) : null),
     courses.length
       ? h("div", { class: "card flush" }, h("table", {},
         h("thead", {}, h("tr", {}, h("th", {}, "Platz"), h("th", {}, "Abschläge"))),
@@ -17,7 +19,9 @@ export async function coursesPage() {
           h("td", {}, h("a", { href: `#/plaetze/${c.id}` }, c.name)),
           h("td", {}, c.tees.map((t) => h("span", { class: "chip" }, `${t.name} ${t.gender} · ${t.holes_count} L · CR ${num(t.course_rating)} / SR ${t.slope_rating}`))))))))
       : h("div", { class: "card empty" }, h("p", {}, "Noch keine Plätze erfasst."),
-        can.edit() ? h("a", { class: "button primary", href: "#/plaetze/neu" }, "Ersten Platz anlegen") : null));
+        can.edit() ? h("div", { class: "inline" },
+          h("a", { class: "button primary", href: "#/plaetze/katalog" }, "Platz im Katalog suchen"),
+          h("a", { class: "button", href: "#/plaetze/neu" }, "Manuell anlegen")) : null));
 }
 
 function num(v) { return String(v).replace(".", ","); }
@@ -37,7 +41,8 @@ function teeEditor(initial = {}, sources = []) {
   const errors = h("div");
   const parInput = h("input", { name: "par", required: true, inputmode: "numeric", value: initial.par ?? "",
     oninput: () => { parInput.dataset.touched = "1"; } });
-  if (hasHoles) parInput.dataset.touched = "1";
+  // Vorhandene oder importierte Gesamt-Par nicht durch die Lochsumme überschreiben
+  if (hasHoles || initial.par) parInput.dataset.touched = "1";
 
   // Übernahme von einem bestehenden Abschlag (nur beim Neuanlegen)
   const srcSel = sources.length ? select("source", [["", "— nichts übernehmen —"], ...sources.map((t) => [t.id, `${t.name} (${genderLabel(t.gender)}, ${t.holes_count} L)`])], sources[0].id, { onchange: applySource }) : null;
@@ -62,7 +67,11 @@ function teeEditor(initial = {}, sources = []) {
     let pars; let sis;
     if (hasHoles && initial.holes.length === n) {
       pars = initial.holes.map((x) => x.par);
-      sis = initial.holes.map((x) => x.stroke_index);
+      sis = initial.holes.map((x) => x.stroke_index ?? "");
+    } else if (initial.blankHoles) {
+      // Import ohne Lochdaten: bewusst leer statt Standardwerte, damit nichts Falsches durchrutscht
+      pars = Array(n).fill("");
+      sis = Array(n).fill("");
     } else if (src && src.holes.length === n) {
       pars = src.holes.map((x) => x.par);
       sis = siCheck.checked ? src.holes.map((x) => x.stroke_index) : Array(n).fill("");
@@ -92,7 +101,8 @@ function teeEditor(initial = {}, sources = []) {
   }
 
   const el = h("fieldset", { class: "tee" },
-    h("legend", {}, hasHoles ? "Abschlag bearbeiten" : "Abschlag"),
+    h("legend", {}, initial.legend || (initial.id ? "Abschlag bearbeiten" : "Abschlag")),
+    (initial.warnings || []).map((w) => h("div", { class: "alert warn small" }, w)),
     sourceRow,
     h("div", { class: "form-grid" },
       field("Name", h("input", { name: "name", required: true, maxlength: 40, placeholder: "z. B. Gelb", value: initial.name || "" })),
@@ -123,36 +133,71 @@ function teeEditor(initial = {}, sources = []) {
   function localCheck(tee) {
     const problems = [];
     if (tee.holes.some((x) => !x.stroke_index)) problems.push("Bitte für jedes Loch den Loch-HCP eintragen.");
-    if (new Set(tee.holes.map((x) => x.stroke_index)).size !== tee.holes.length) problems.push("Loch-HCP ist doppelt vergeben (rot markiert).");
+    const sis = tee.holes.map((x) => x.stroke_index).filter(Boolean);
+    if (new Set(sis).size !== sis.length) problems.push("Loch-HCP ist doppelt vergeben (rot markiert).");
+    if (tee.holes.some((x) => !x.par)) problems.push("Bitte für jedes Loch das Par eintragen.");
     if (Number.isNaN(Number(tee.course_rating))) problems.push("Course Rating ist keine Zahl.");
     if (Number.isNaN(tee.slope_rating)) problems.push("Slope Rating ist keine Zahl.");
     return problems;
   }
-  return { el, read, localCheck, errors };
+  /** Par und Loch-HCP aus einem anderen Editor übernehmen. */
+  function copyHolesFrom(other) {
+    const src = other.read();
+    if (src.holes_count !== Number(holesSel.value)) { holesSel.value = String(src.holes_count); buildGrid(); }
+    grid.querySelectorAll("input.par").forEach((inp, i) => { inp.value = src.holes[i].par || ""; });
+    grid.querySelectorAll("input.si").forEach((inp, i) => { inp.value = src.holes[i].stroke_index || ""; });
+    updateSum();
+    checkSi();
+  }
+  return { el, read, localCheck, errors, copyHolesFrom };
 }
 
 function problemsError(problems) {
   return Object.assign(new Error("Bitte Eingaben prüfen."), { errors: problems });
 }
 
+// Vorbelegung aus dem Platzkatalog (wird von der Katalogseite gesetzt, einmalig gelesen)
+let pendingImport = null;
+export function setPendingImport(data) { pendingImport = data; }
+
 export async function courseNewPage() {
+  const imp = pendingImport;
+  pendingImport = null;
   const slot = h("div");
   const tees = [];
   const teeBox = h("div");
-  const addTee = (init) => {
-    // Weitere Abschläge übernehmen die Pars des ersten Abschlags.
+  const addTee = (init, { copyFirst = true } = {}) => {
     const t = teeEditor(init);
-    if (tees.length) {
+    if (tees.length && copyFirst) {
+      // Weitere Abschläge übernehmen die Pars des ersten Abschlags.
       const first = tees[0].read();
       t.el.querySelector('[name="holes_count"]').value = String(first.holes_count);
       t.el.querySelector('[name="holes_count"]').dispatchEvent(new Event("change"));
       t.el.querySelectorAll("input.par").forEach((inp, i) => { inp.value = first.holes[i]?.par ?? inp.value; });
       t.el.querySelector("input.par")?.dispatchEvent(new Event("input"));
     }
+    if (tees.length && init.blankHoles) {
+      // Import ohne Lochdaten: Loch-Daten nach dem Ausfüllen von Abschlag 1 übertragen
+      t.el.querySelector(".scroll-x").before(h("button", { type: "button", class: "ghost small copy-holes",
+        onclick: () => t.copyHolesFrom(tees[0]) }, "Par und Loch-HCP von Abschlag 1 übernehmen"));
+    }
     tees.push(t);
     teeBox.append(t.el);
   };
-  addTee({ name: "Gelb", gender: "m" });
+
+  let intro = null;
+  if (imp) {
+    imp.tees.forEach((tee, i) => addTee({
+      ...tee, legend: `Abschlag ${i + 1}: ${tee.name} (${genderLabel(tee.gender)})`,
+      holes: imp.holes || null, blankHoles: !imp.holes,
+    }, { copyFirst: false }));
+    intro = h("div", {},
+      h("div", { class: "alert info" }, "Vorbelegt aus dem Platzkatalog (handicap.report",
+        imp.stand ? `, Stand ${imp.stand}` : "", "). Bitte alle Werte mit der Scorekarte des Clubs abgleichen."),
+      imp.warnings.map((w) => h("div", { class: "alert warn" }, w)));
+  } else {
+    addTee({ name: "Gelb", gender: "m" });
+  }
 
   const form = h("form", { class: "page", onsubmit: async (e) => {
     e.preventDefault();
@@ -160,15 +205,21 @@ export async function courseNewPage() {
     const problems = tees.flatMap((t, i) => t.localCheck(data[i]).map((p) => `Abschlag ${i + 1}: ${p}`));
     if (problems.length) { showError(slot, problemsError(problems)); return; }
     try {
-      const res = await api("POST", "/courses", { name: form.elements.namedItem("course_name").value, tees: data });
+      const res = await api("POST", "/courses", {
+        name: form.elements.namedItem("course_name").value, tees: data,
+        source_ref: imp ? imp.source_ref : undefined,
+      });
       toast("Platz angelegt");
       location.hash = `#/plaetze/${res.id}`;
     } catch (err) { showError(slot, err); }
   } },
-  h("div", { class: "page-head" }, h("h1", {}, "Neuer Platz")),
+  h("div", { class: "page-head" },
+    h("div", {}, imp ? h("a", { href: "#/plaetze/katalog", class: "back" }, "← Platzsuche") : null,
+      h("h1", {}, imp ? "Platz aus Katalog übernehmen" : "Neuer Platz"))),
   h("div", { class: "card" },
+    intro,
     slot,
-    field("Name des Platzes", h("input", { name: "course_name", required: true, maxlength: 150, placeholder: "z. B. GC Saarbrücken – 18-Loch" })),
+    field("Name des Platzes", h("input", { name: "course_name", required: true, maxlength: 150, value: imp ? imp.suggested_name : "", placeholder: "z. B. GC Saarbrücken – 18-Loch" })),
     teeBox,
     h("div", { class: "actions" },
       h("button", { type: "button", class: "ghost", onclick: () => addTee({ name: "Rot", gender: "w" }) }, "+ Weiterer Abschlag"),
