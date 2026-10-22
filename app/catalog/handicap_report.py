@@ -17,33 +17,20 @@ Bekannte Eigenheiten der Quelle (Stand 2026-06):
 """
 from __future__ import annotations
 
-import json
 import re
 import threading
 import time
 import unicodedata
-import urllib.error
 import urllib.parse
-import urllib.request
 from dataclasses import dataclass, field
-from typing import Any, Callable, Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, ValidationError
 
+from app.catalog.base import CatalogError, Fetcher, http_get_json  # noqa: F401 (Re-Export)
+
 COURSE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9-]{0,159}$")
-MAX_BYTES = 4 * 1024 * 1024
-TIMEOUT_S = 10
 SOURCE = "handicap.report"
-
-
-class CatalogError(Exception):
-    """Katalog nicht erreichbar oder Antwort unbrauchbar."""
-
-    def __init__(self, message: str, status: int = 502):
-        super().__init__(message)
-        self.message = message
-        self.status = status
-
 
 # --- Schemas der externen Antworten (nur die Felder, die wir nutzen) ----------
 
@@ -85,37 +72,6 @@ class ExtCourse(_Lenient):
     courseName: str | None = Field(default=None, max_length=120)
     tees: list[ExtTee] = Field(default_factory=list, max_length=40)
     holes: list[ExtHole] | None = Field(default=None, max_length=36)
-
-
-# --- Abruf --------------------------------------------------------------------
-
-Fetcher = Callable[[str], Any]
-
-
-def http_get_json(url: str) -> Any:
-    """GET mit Timeout und Größenlimit; liefert geparstes JSON oder CatalogError."""
-    req = urllib.request.Request(
-        url, headers={"Accept": "application/json", "User-Agent": "Golf_Auswertung/0.1"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:  # noqa: S310 (feste URL)
-            if resp.status != 200:
-                raise CatalogError(f"Platzkatalog antwortet mit Status {resp.status}.")
-            data = resp.read(MAX_BYTES + 1)
-    except CatalogError:
-        raise
-    except urllib.error.HTTPError as e:
-        if e.code == 404:
-            raise CatalogError("Platz im Katalog nicht gefunden.", 404) from e
-        raise CatalogError(f"Platzkatalog antwortet mit Status {e.code}.") from e
-    except (urllib.error.URLError, TimeoutError, OSError) as e:
-        raise CatalogError("Platzkatalog ist nicht erreichbar.", 503) from e
-    if len(data) > MAX_BYTES:
-        raise CatalogError("Antwort des Platzkatalogs ist zu groß.")
-    try:
-        return json.loads(data.decode("utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError) as e:
-        raise CatalogError("Antwort des Platzkatalogs ist kein gültiges JSON.") from e
 
 
 # --- Normalisierung für die Suche ------------------------------------------------

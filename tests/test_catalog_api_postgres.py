@@ -14,29 +14,29 @@ def cclient(client):
 
 
 def test_search_requires_editor_and_input(cclient, db):
-    assert cclient.get("/course-catalog/search?q=aachen").status_code == 401
+    assert cclient.get("/course-catalog/handicap-report/search?q=aachen").status_code == 401
     make_user(db, "viewer@example.org", "viewer")
     login(cclient, "viewer@example.org")
-    assert cclient.get("/course-catalog/search?q=aachen").status_code == 403
+    assert cclient.get("/course-catalog/handicap-report/search?q=aachen").status_code == 403
 
 
 def test_search_and_detail(cclient, db):
     make_user(db)
     login(cclient)
-    assert cclient.get("/course-catalog/search?q=a").status_code == 422
-    r = cclient.get("/course-catalog/search", params={"q": "Saarbrücken"})
+    assert cclient.get("/course-catalog/handicap-report/search?q=a").status_code == 422
+    r = cclient.get("/course-catalog/handicap-report/search", params={"q": "Saarbrücken"})
     assert r.status_code == 200 and r.json()["results"][0]["imported_course_id"] is None
-    d = cclient.get("/course-catalog/courses/aachener-golf-club-1927-e-v-aachen-18").json()
+    d = cclient.get("/course-catalog/handicap-report/courses/aachener-golf-club-1927-e-v-aachen-18").json()
     assert len(d["tees"]) == 3 and d["imported_course_id"] is None
-    assert cclient.get("/course-catalog/courses/gibt-es-nicht").status_code == 404
-    assert cclient.get("/course-catalog/courses/UPPER").status_code == 422
-    assert "Saarland" in cclient.get("/course-catalog/bundeslaender").json()
+    assert cclient.get("/course-catalog/handicap-report/courses/gibt-es-nicht").status_code == 404
+    assert cclient.get("/course-catalog/handicap-report/courses/UPPER").status_code == 422
+    assert "Saarland" in cclient.get("/course-catalog/handicap-report/bundeslaender").json()
 
 
 def test_import_marks_source_and_prevents_duplicate(cclient, db):
     make_user(db)
     login(cclient)
-    d = cclient.get("/course-catalog/courses/aachener-golf-club-1927-e-v-aachen-18").json()
+    d = cclient.get("/course-catalog/handicap-report/courses/aachener-golf-club-1927-e-v-aachen-18").json()
     gelb = d["tees"][0]
     payload = {
         "name": d["suggested_name"], "source_ref": d["source_ref"],
@@ -50,9 +50,9 @@ def test_import_marks_source_and_prevents_duplicate(cclient, db):
     assert cclient.get(f"/courses/{cid}").json()["source_ref"] == d["source_ref"]
     again = cclient.post("/courses", json=payload | {"name": "Anderer Name"})
     assert again.status_code == 409 and "bereits übernommen" in again.json()["detail"]
-    s = cclient.get("/course-catalog/search", params={"q": "aachen"}).json()
+    s = cclient.get("/course-catalog/handicap-report/search", params={"q": "aachen"}).json()
     assert s["results"][0]["imported_course_id"] == cid
-    det = cclient.get("/course-catalog/courses/aachener-golf-club-1927-e-v-aachen-18").json()
+    det = cclient.get("/course-catalog/handicap-report/courses/aachener-golf-club-1927-e-v-aachen-18").json()
     assert det["imported_course_id"] == cid
 
 
@@ -74,5 +74,5 @@ def test_catalog_unreachable_gives_503(cclient, db):
     cclient.app.state.catalog.fetcher = down
     make_user(db)
     login(cclient)
-    r = cclient.get("/course-catalog/search?q=aachen")
+    r = cclient.get("/course-catalog/handicap-report/search?q=aachen")
     assert r.status_code == 503 and "nicht erreichbar" in r.json()["detail"]

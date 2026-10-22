@@ -26,6 +26,7 @@ services:
       GOLF_ENV: production
       GOLF_DATABASE_URL: postgresql+psycopg://golf:${POSTGRES_PASSWORD}@db:5432/golf
       GOLF_SESSION_SECRET: ${GOLF_SESSION_SECRET:?GOLF_SESSION_SECRET fehlt}
+      GOLF_GOLFCOURSEAPI_KEY: ${GOLF_GOLFCOURSEAPI_KEY:-}
       GOLF_FORWARDED_ALLOW_IPS: "*"  # nur Caddy im internen Netz erreicht die App
     volumes:
       - storage:/data/storage

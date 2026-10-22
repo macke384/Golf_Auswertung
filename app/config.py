@@ -10,7 +10,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field, model_validator
+from pydantic import Field, SecretStr, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 # Werte, die in .env.example oder Doku stehen und niemals produktiv sein dürfen.
@@ -46,6 +46,12 @@ class Settings(BaseSettings):
     # Platzkatalog (handicap.report). Leer = Katalog abgeschaltet.
     course_catalog_url: str = "https://handicap.report/api/v1/courses.php"
     course_catalog_ttl_seconds: int = Field(default=3600, ge=60)
+
+    # golfcourseapi.com: Schlüssel nur per Umgebung/golf.env, nie ins Repo.
+    golfcourseapi_url: str = "https://api.golfcourseapi.com"
+    golfcourseapi_key: SecretStr = SecretStr("")
+    # Eigenes Tageslimit unterhalb des Anbieter-Kontingents (Free ~35/Tag)
+    golfcourseapi_daily_limit: int = Field(default=30, ge=0, le=100000)
 
     # Login-Schutz
     login_max_failures: int = 5

@@ -127,7 +127,11 @@ function teeEditor(initial = {}, sources = []) {
       course_rating: toNum(el.querySelector('[name="course_rating"]').value).toFixed(1),
       slope_rating: Math.round(toNum(el.querySelector('[name="slope_rating"]').value)),
       par: Math.round(toNum(parInput.value)),
-      holes: pars.map((p, i) => ({ number: i + 1, par: p, stroke_index: sis[i] })),
+      holes: pars.map((p, i) => {
+        // Lochlängen aus Bestand/Import mitnehmen, solange die Lochzahl passt
+        const len = hasHoles && initial.holes.length === pars.length ? initial.holes[i].length_m : null;
+        return { number: i + 1, par: p, stroke_index: sis[i], ...(len ? { length_m: len } : {}) };
+      }),
     };
   }
   function localCheck(tee) {
@@ -137,7 +141,8 @@ function teeEditor(initial = {}, sources = []) {
     if (new Set(sis).size !== sis.length) problems.push("Loch-HCP ist doppelt vergeben (rot markiert).");
     if (tee.holes.some((x) => !x.par)) problems.push("Bitte für jedes Loch das Par eintragen.");
     if (Number.isNaN(Number(tee.course_rating))) problems.push("Course Rating ist keine Zahl.");
-    if (Number.isNaN(tee.slope_rating)) problems.push("Slope Rating ist keine Zahl.");
+    if (Number.isNaN(tee.slope_rating) || !tee.slope_rating) problems.push("Bitte das Slope Rating eintragen.");
+    if (!Number(tee.course_rating)) problems.push("Bitte das Course Rating eintragen.");
     return problems;
   }
   /** Par und Loch-HCP aus einem anderen Editor übernehmen. */
@@ -187,12 +192,15 @@ export async function courseNewPage() {
 
   let intro = null;
   if (imp) {
-    imp.tees.forEach((tee, i) => addTee({
-      ...tee, legend: `Abschlag ${i + 1}: ${tee.name} (${genderLabel(tee.gender)})`,
-      holes: imp.holes || null, blankHoles: !imp.holes,
-    }, { copyFirst: false }));
+    imp.tees.forEach((tee, i) => {
+      const holes = tee.holes || imp.holes || null;  // golfcourseapi: je Abschlag; handicap.report: je Platz
+      addTee({
+        ...tee, legend: `Abschlag ${i + 1}: ${tee.name} (${genderLabel(tee.gender)})`,
+        holes, blankHoles: !holes, course_rating: tee.course_rating ?? undefined,
+      }, { copyFirst: false });
+    });
     intro = h("div", {},
-      h("div", { class: "alert info" }, "Vorbelegt aus dem Platzkatalog (handicap.report",
+      h("div", { class: "alert info" }, `Vorbelegt aus dem Platzkatalog (${imp.source_label || imp.source}`,
         imp.stand ? `, Stand ${imp.stand}` : "", "). Bitte alle Werte mit der Scorekarte des Clubs abgleichen."),
       imp.warnings.map((w) => h("div", { class: "alert warn" }, w)));
   } else {

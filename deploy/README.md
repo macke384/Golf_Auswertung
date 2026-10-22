@@ -63,6 +63,19 @@ golf-update --admin deine@adresse.de      # ersten Admin anlegen
 - `TLS_MODE=public`: echtes Let's-Encrypt-Zertifikat. Voraussetzung: öffentliche Domain,
   die auf deinen Anschluss zeigt, und Portfreigabe 80/443 auf golf-app.
 
+## golfcourseapi.com einrichten (optional)
+
+Für den zweiten Platzkatalog den API-Schlüssel im App-LXC eintragen – nie ins Git-Repository:
+
+```bash
+echo 'GOLF_GOLFCOURSEAPI_KEY=<dein-schlüssel>' >> /etc/golf-auswertung/golf.env
+# optional, Standard 30 (Free-Tarif erlaubt ~35/Tag):
+echo 'GOLF_GOLFCOURSEAPI_DAILY_LIMIT=30' >> /etc/golf-auswertung/golf.env
+systemctl restart golf-auswertung
+```
+
+Schlüssel wechseln: Zeile in `golf.env` ersetzen und Dienst neu starten.
+
 ## Alltag
 
 | Aufgabe | Befehl | Wo |

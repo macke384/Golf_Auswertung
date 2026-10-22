@@ -56,7 +56,7 @@ def migrated_engine():
 
 TABLES = (
     "hole_scores, scorecards, imports, tournament_entries, tournaments, tee_holes, tees, "
-    "courses, team_members, teams, players, auth_sessions, users"
+    "courses, team_members, teams, players, auth_sessions, users, catalog_cache, api_usage"
 )
 
 

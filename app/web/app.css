@@ -271,3 +271,13 @@ input.big-search { width: 100%; font-size: 1.05rem; padding: .65rem .8rem; }
 .warn-text { color: var(--warn); }
 .catalog-detail table { margin: .75rem 0; }
 button.copy-holes { margin-bottom: .5rem; }
+
+.tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--line); margin: -.25rem 0 1rem; }
+.tab { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; color: var(--muted); padding: .5rem .9rem; }
+.tab:hover { background: var(--surface-2); }
+.tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+.search-row { display: flex; gap: .6rem; }
+.search-row input { flex: 1; }
+.space-between { justify-content: space-between; width: 100%; }
+.catalog-detail details { margin: .75rem 0; }
+.catalog-detail details .scroll-x { margin-top: .6rem; }

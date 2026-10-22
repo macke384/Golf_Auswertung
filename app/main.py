@@ -22,6 +22,7 @@ from sqlalchemy.orm.exc import StaleDataError
 from app import schemas, security, services
 from app.config import Settings, get_settings
 from app.db import get_db, get_sessionmaker
+from app.catalog.golfcourseapi import GolfCourseAPI
 from app.catalog.handicap_report import Catalog, CatalogError
 from app.imports import service as import_service
 from app.imports.upload import UploadError, stored_file
@@ -407,24 +408,48 @@ def create_app() -> FastAPI:
 
     # --- Ergänzungen für die Weboberfläche ------------------------------------
 
-    # --- Platzkatalog (handicap.report) ----------------------------------------
+    # --- Platzkataloge (handicap.report, golfcourseapi.com) --------------------
 
     app.state.catalog = Catalog(settings.course_catalog_url, settings.course_catalog_ttl_seconds) \
         if settings.course_catalog_url else None
+    gca_key = settings.golfcourseapi_key.get_secret_value()
+    app.state.golfcourseapi = GolfCourseAPI(
+        settings.golfcourseapi_url, gca_key, settings.golfcourseapi_daily_limit, get_sessionmaker(),
+    ) if settings.golfcourseapi_url else None
 
     def _catalog_or_404() -> Catalog:
         if app.state.catalog is None:
-            raise HTTPException(404, "Der Platzkatalog ist auf diesem Server abgeschaltet.")
+            raise HTTPException(404, "Der Platzkatalog handicap.report ist auf diesem Server abgeschaltet.")
         return app.state.catalog
 
-    def _imported(db: Session, ids: list[str]) -> dict[str, int]:
-        refs = [f"handicap.report:{i}" for i in ids]
+    def _gca_or_404() -> GolfCourseAPI:
+        if app.state.golfcourseapi is None:
+            raise HTTPException(404, "golfcourseapi.com ist auf diesem Server abgeschaltet.")
+        return app.state.golfcourseapi
+
+    def _imported(db: Session, prefix: str, ids: list[str]) -> dict[str, int]:
+        refs = [f"{prefix}:{i}" for i in ids]
         if not refs:
             return {}
         rows = db.execute(select(Course.source_ref, Course.id).where(Course.source_ref.in_(refs))).all()
         return {ref.split(":", 1)[1]: cid for ref, cid in rows}
 
-    @app.get("/course-catalog/search")
+    @app.get("/course-catalog/sources")
+    async def catalog_sources(_: User = editor):
+        gca = app.state.golfcourseapi
+        usage = await anyio.to_thread.run_sync(gca.usage) if gca else None
+        return [
+            {"id": "handicap-report", "name": "handicap.report", "enabled": app.state.catalog is not None,
+             "description": "Deutsche Plätze mit CR/Slope/Par je Abschlag; Lochdaten nur bei wenigen Plätzen. "
+                            "Kein Kontingent."},
+            {"id": "golfcourseapi", "name": "golfcourseapi.com",
+             "enabled": gca is not None, "configured": bool(gca and gca._api_key),
+             "description": "Weltweite Plätze mit Par und Loch-HCP je Abschlag. Begrenztes Tageskontingent.",
+             "usage": usage},
+        ]
+
+    # handicap.report
+    @app.get("/course-catalog/handicap-report/search")
     async def catalog_search(
         q: str = Query(default="", max_length=100),
         bundesland: str | None = Query(default=None, max_length=60),
@@ -439,22 +464,41 @@ def create_app() -> FastAPI:
         # Abruf blockiert (urllib) → im Threadpool, damit der Server nicht hängt.
         res = await anyio.to_thread.run_sync(
             lambda: cat.search(q, bundesland, holes, with_holes, limit=50))
-        imported = _imported(db, [r["id"] for r in res["results"]])
+        imported = _imported(db, "handicap.report", [r["id"] for r in res["results"]])
         for r in res["results"]:
             r["imported_course_id"] = imported.get(r["id"])
         return res
 
-    @app.get("/course-catalog/bundeslaender")
+    @app.get("/course-catalog/handicap-report/bundeslaender")
     async def catalog_bundeslaender(_: User = editor):
         cat = _catalog_or_404()
         return await anyio.to_thread.run_sync(cat.bundeslaender)
 
-    @app.get("/course-catalog/courses/{catalog_id}")
+    @app.get("/course-catalog/handicap-report/courses/{catalog_id}")
     async def catalog_course(catalog_id: str = Path_(max_length=160), db: Session = Depends(get_db),
                              _: User = editor):
         cat = _catalog_or_404()
         res = await anyio.to_thread.run_sync(lambda: cat.course(catalog_id))
-        return res | {"imported_course_id": _imported(db, [catalog_id]).get(catalog_id)}
+        return res | {"imported_course_id": _imported(db, "handicap.report", [catalog_id]).get(catalog_id)}
+
+    # golfcourseapi.com
+    @app.get("/course-catalog/golfcourseapi/search")
+    async def gca_search(q: str = Query(max_length=100), db: Session = Depends(get_db),
+                         _: User = editor):
+        gca = _gca_or_404()
+        res = await anyio.to_thread.run_sync(lambda: gca.search(q))
+        imported = _imported(db, "golfcourseapi", [r["id"] for r in res["results"]])
+        for r in res["results"]:
+            r["imported_course_id"] = imported.get(r["id"])
+        return res
+
+    @app.get("/course-catalog/golfcourseapi/courses/{catalog_id}")
+    async def gca_course(catalog_id: str = Path_(max_length=8), db: Session = Depends(get_db),
+                         _: User = editor):
+        gca = _gca_or_404()
+        res = await anyio.to_thread.run_sync(lambda: gca.course(catalog_id))
+        cid = catalog_id.lower()
+        return res | {"imported_course_id": _imported(db, "golfcourseapi", [cid]).get(cid)}
 
     @app.get("/courses")
     def list_courses(db: Session = Depends(get_db), _: User = viewer):

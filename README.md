@@ -62,21 +62,39 @@ tests/                 Unit-Tests + Integrationstests gegen echte PostgreSQL
 | Mannschaft | Summe der besten N Netto-Stableford-Ergebnisse (N pro Abfrage wählbar) |
 | Einzelrunde | Technisch ein Turnier vom Typ `single` mit genau einer Meldung und 100 % Allowance – gleiche Berechnung, gleiche Absicherung |
 
-## Platzkatalog (handicap.report)
+## Platzkataloge
 
-Unter *Plätze → Platz im Katalog suchen* lassen sich Plätze aus dem öffentlichen Katalog von
-[handicap.report](https://handicap.report/api/v1/) suchen (Clubname, Ort, Bundesland, 9/18 Loch,
-„nur mit Lochdaten“). Ein Treffer zeigt Abschläge mit CR/Slope/Par und – falls vorhanden – Par und
-Loch-HCP je Loch. „Übernehmen“ füllt das Formular *Neuer Platz* vor; gespeichert wird erst nach Prüfung.
+Unter *Plätze → Platz im Katalog suchen* gibt es zwei Quellen (Reiter). „Übernehmen“ füllt immer nur
+das Formular *Neuer Platz* vor; gespeichert wird erst nach Prüfung. Übernommene Plätze merken sich
+ihre Herkunft (`source_ref`) und können nicht doppelt übernommen werden.
 
-- Abruf nur über unseren Server (feste URL, Timeout, Größenlimit, Schema-Prüfung), Antworten werden
-  1 Stunde zwischengespeichert; ist die Quelle ausgefallen, wird der letzte Stand genutzt.
-- Der Katalog enthält **keine PLZ**; Umlaute sind dort teils umschrieben, die Suche gleicht das aus.
-- Bei den meisten Plätzen fehlen Lochdaten → Par und Loch-HCP von der Scorekarte ergänzen
-  (für weitere Abschläge per Knopf von Abschlag 1 kopierbar).
-- „unsicher“ markierte Werte, abweichende Pars und 27-Loch-Anlagen werden als Hinweis angezeigt.
-- Übernommene Plätze merken sich ihre Herkunft (`source_ref`), ein Platz kann nicht doppelt übernommen werden.
-- Abschalten: `GOLF_COURSE_CATALOG_URL=` (leer). Der App-LXC braucht ausgehendes HTTPS zu handicap.report.
+| | handicap.report | golfcourseapi.com |
+|---|---|---|
+| Abdeckung | ~860 deutsche Plätze | weltweit |
+| Abschläge | CR, Slope, Par | CR, Slope, Par, Längen |
+| Lochdaten | nur bei wenigen Plätzen, je Platz | Par und Loch-HCP **je Abschlag** |
+| Suche | live beim Tippen; Club, Ort, Bundesland, 9/18 Loch | auf Knopfdruck; Club-/Platzname |
+| Zugang | frei, kein Schlüssel | API-Schlüssel, Free-Tarif ~35 Anfragen/Tag |
+
+Gemeinsam: Abruf nur über unseren Server (feste URL, Timeout 10 s, max. 4 MB, Schema-Prüfung jeder
+Antwort); kaputte Einträge werden aussortiert; bei Ausfall wird der letzte Stand genutzt und markiert.
+
+**handicap.report:** keine PLZ im Katalog; Umlaute sind dort teils umschrieben, die Suche gleicht das
+aus. „unsicher“ markierte Werte, abweichende Pars und 27-Loch-Anlagen erscheinen als Hinweis.
+
+**golfcourseapi.com – Kontingent schonen:**
+- Jede Anfrage wird vorher atomar in `api_usage` gezählt; ab dem eigenen Tageslimit
+  (`GOLF_GOLFCOURSEAPI_DAILY_LIMIT`, Standard 30) wird nicht mehr angefragt. Meldet der Anbieter
+  selbst „Limit erreicht“ (HTTP 429), ist der Tag ebenfalls gesperrt. Der Zähler läuft nach UTC-Tagen.
+- Antworten liegen in `catalog_cache` (Suchen 7 Tage, Plätze 30 Tage) und überstehen Neustarts.
+  Wiederholte Suchen und erneutes Öffnen kosten nichts.
+- Gleichzeitige identische Anfragen warten aufeinander und verbrauchen nur eine Anfrage.
+- Die Oberfläche zeigt „Heute noch X von Y Anfragen“.
+- Der API-Schlüssel steht **nur** in der Server-Konfiguration (`GOLF_GOLFCOURSEAPI_KEY`), wird als
+  Bearer-Token gesendet und nie geloggt oder an den Browser gegeben.
+
+Abschalten: `GOLF_COURSE_CATALOG_URL=` bzw. `GOLF_GOLFCOURSEAPI_URL=` (leer).
+Der App-LXC braucht ausgehendes HTTPS zu beiden Diensten.
 
 ## Import
 

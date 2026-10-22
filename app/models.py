@@ -235,3 +235,27 @@ class Import(Base):
         ),
         CheckConstraint("sha256 ~ '^[0-9a-f]{64}$'", name="ck_imports_sha256"),
     )
+
+
+class CatalogCache(Base):
+    """Zwischengespeicherte Antworten externer Platzkataloge.
+
+    Grund für die Tabelle: golfcourseapi.com erlaubt im Free-Tarif nur ~35
+    Anfragen pro Tag. Ein Speicher, der Neustarts übersteht, spart Kontingent.
+    """
+
+    __tablename__ = "catalog_cache"
+    source: Mapped[str] = mapped_column(String(30), primary_key=True)
+    key: Mapped[str] = mapped_column(String(200), primary_key=True)
+    payload: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
+
+
+class ApiUsage(Base):
+    """Verbrauchte Anfragen je externer Quelle und Tag (UTC) – für Kontingentgrenzen."""
+
+    __tablename__ = "api_usage"
+    source: Mapped[str] = mapped_column(String(30), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    __table_args__ = (CheckConstraint("count >= 0", name="ck_api_usage_count"),)
